@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # The MIT License (MIT)
 #
@@ -23,10 +23,8 @@
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-
-"""Make static website/blog with Python."""
-
-
+import distutils.dir_util
+import json
 import os
 import shutil
 import re
@@ -144,7 +142,7 @@ def make_pages(src, dst, layout, **params):
         output = render(layout, **page_params)
 
         log('Rendering {} => {} ...', src_path, dst_path)
-        fwrite(dst_path, output)
+        fwrite(os.path.join(params['target_root'], dst_path), output)
 
     return sorted(items, key=lambda x: x['date'], reverse=True)
 
@@ -163,18 +161,16 @@ def make_list(posts, dst, list_layout, item_layout, **params):
     output = render(list_layout, **params)
 
     log('Rendering list => {} ...', dst_path)
-    fwrite(dst_path, output)
+    fwrite(os.path.join(params['target_root'], dst_path), output)
 
 
 def main():
-    # Create a new _site directory from scratch.
-    if os.path.isdir('_site'):
-        shutil.rmtree('_site')
-    shutil.copytree('static', '_site')
 
     # Default parameters.
     params = {
         'base_path': '',
+        'data_root': './',
+        'target_root': './_site',
         'subtitle': 'Lorem Ipsum',
         'author': 'Admin',
         'site_url': 'http://localhost:8000',
@@ -184,6 +180,14 @@ def main():
     # If params.json exists, load it.
     if os.path.isfile('params.json'):
         params.update(json.loads(fread('params.json')))
+
+    # Create a new output directory from scratch.
+    if os.path.isdir(params['target_root']):
+        try:
+            shutil.rmtree(params['target_root'])
+        except PermissionError:
+            pass
+    distutils.dir_util.copy_tree(os.path.join(params['data_root'], 'static'), params['target_root'])
 
     # Load layouts.
     page_layout = fread('layout/page.html')
@@ -198,29 +202,29 @@ def main():
     list_layout = render(page_layout, content=list_layout)
 
     # Create site pages.
-    make_pages('content/_index.html', '_site/index.html',
+    make_pages('content/_index.html', 'index.html',
                page_layout, **params)
-    make_pages('content/[!_]*.html', '_site/{{ slug }}/index.html',
+    make_pages('content/[!_]*.html', '{{ slug }}/index.html',
                page_layout, **params)
 
     # Create blogs.
     blog_posts = make_pages('content/blog/*.md',
-                            '_site/blog/{{ slug }}/index.html',
+                            'blog/{{ slug }}/index.html',
                             post_layout, blog='blog', **params)
     news_posts = make_pages('content/news/*.html',
-                            '_site/news/{{ slug }}/index.html',
+                            'news/{{ slug }}/index.html',
                             post_layout, blog='news', **params)
 
     # Create blog list pages.
-    make_list(blog_posts, '_site/blog/index.html',
+    make_list(blog_posts, 'blog/index.html',
               list_layout, item_layout, blog='blog', title='Blog', **params)
-    make_list(news_posts, '_site/news/index.html',
+    make_list(news_posts, 'news/index.html',
               list_layout, item_layout, blog='news', title='News', **params)
 
     # Create RSS feeds.
-    make_list(blog_posts, '_site/blog/rss.xml',
+    make_list(blog_posts, 'blog/rss.xml',
               feed_xml, item_xml, blog='blog', title='Blog', **params)
-    make_list(news_posts, '_site/news/rss.xml',
+    make_list(news_posts, 'news/rss.xml',
               feed_xml, item_xml, blog='news', title='News', **params)
 
 
