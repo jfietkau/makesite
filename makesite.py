@@ -27,6 +27,7 @@ import copy
 import datetime
 import distutils.dir_util
 import glob
+import jinja2
 import json
 import os
 import re
@@ -130,16 +131,10 @@ def make_pages(src, dst, layout, **params):
 
         page_params = dict(params, **content)
 
-        # Populate placeholders in content if content-rendering is enabled.
-        if page_params.get('render') == 'yes':
-            rendered_content = render(page_params['content'], **page_params)
-            page_params['content'] = rendered_content
-            content['content'] = rendered_content
-
         items.append(content)
 
         dst_path = render(dst, **page_params)
-        output = render(layout, **page_params)
+        output = layout.render(**page_params)
 
         log('Rendering {} => {} ...', src_path, dst_path)
         fwrite(os.path.join(params['target_root'], dst_path), output)
@@ -147,18 +142,15 @@ def make_pages(src, dst, layout, **params):
     return sorted(items, key=lambda x: x['date'], reverse=True)
 
 
-def make_list(posts, dst, list_layout, item_layout, **params):
+def make_list(posts, dst, list_layout, **params):
     """Generate list page for a blog."""
     items = []
     for post in posts:
-        item_params = dict(params, **post)
-        item_params['summary'] = truncate(post['content'])
-        item = render(item_layout, **item_params)
-        items.append(item)
+        post['summary'] = truncate(post['content'])
 
-    params['content'] = ''.join(items)
+    params['posts'] = posts
     dst_path = render(dst, **params)
-    output = render(list_layout, **params)
+    output = list_layout.render(**params)
 
     log('Rendering list => {} ...', dst_path)
     fwrite(os.path.join(params['target_root'], dst_path), output)
@@ -190,6 +182,7 @@ def main():
         site_params = copy.deepcopy(params)
         site_params['target_root'] = os.path.join(site_params['target_root'], site['name'].lower())
         site_params['title'] = site['name']
+        site_params['hostname'] = site['name']
         compile_site(site, site_params)
 
 def compile_site(site, params):
@@ -209,44 +202,43 @@ def compile_site(site, params):
     # Load layouts.
     layout_path = os.path.join(params['data_root'], 'layout')
 
-    page_layout = fread(os.path.join(layout_path, 'page.html'))
-    post_layout = fread(os.path.join(layout_path, 'post.html'))
-    list_layout = fread(os.path.join(layout_path, 'list.html'))
-    item_layout = fread(os.path.join(layout_path, 'item.html'))
-    feed_xml = fread(os.path.join(layout_path, 'feed.xml'))
-    item_xml = fread(os.path.join(layout_path, 'item.xml'))
+    template_env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(layout_path),
+        #autoescape=jinja2.select_autoescape(['html'])
+    )
 
-    # Combine layouts to form final layouts.
-    post_layout = render(page_layout, content=post_layout)
-    list_layout = render(page_layout, content=list_layout)
+    page_layout = template_env.get_template('page.html')
+    post_layout = template_env.get_template('post.html')
+    list_layout = template_env.get_template('list.html')
+    feed_xml = template_env.get_template('feed.xml')
 
     # Create site pages.
     content_path = os.path.join(params['data_root'], 'content')
     
-    make_pages(os.path.join(content_path, '_index.html'), 'index.html', 
+    make_pages(os.path.join(content_path, 'index.html'), 'index.html',
                page_layout, **params)
-    make_pages(os.path.join(content_path, '[!_]*.html'), '{{ slug }}/index.html',
+    make_pages(os.path.join(content_path, '[!_]*.html'), '{{ slug }}.html',
                page_layout, **params)
 
     # Create blogs.
     blog_posts = make_pages(os.path.join(content_path, 'blog/*.md'),
-                            'blog/{{ slug }}/index.html',
+                            'blog/{{ slug }}.html',
                             post_layout, blog='blog', **params)
     news_posts = make_pages(os.path.join(content_path, 'news/*.html'),
-                            'news/{{ slug }}/index.html',
+                            'news/{{ slug }}.html',
                             post_layout, blog='news', **params)
 
     # Create blog list pages.
     make_list(blog_posts, 'blog/index.html',
-              list_layout, item_layout, blog='blog', **params)
+              list_layout, blog='blog', **params)
     make_list(news_posts, 'news/index.html',
-              list_layout, item_layout, blog='news', **params)
+              list_layout, blog='news', **params)
 
     # Create RSS feeds.
     make_list(blog_posts, 'blog/rss.xml',
-              feed_xml, item_xml, blog='blog', **params)
+              feed_xml, blog='blog', **params)
     make_list(news_posts, 'news/rss.xml',
-              feed_xml, item_xml, blog='news', **params)
+              feed_xml, blog='news', **params)
 
 
 # Test parameter to be set temporarily by unit tests.
