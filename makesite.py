@@ -189,6 +189,7 @@ def main():
     for site in params['sites']:
         site_params = copy.deepcopy(params)
         site_params['target_root'] = os.path.join(site_params['target_root'], site['name'].lower())
+        site_params['title'] = site['name']
         compile_site(site, site_params)
 
 def compile_site(site, params):
@@ -237,15 +238,15 @@ def compile_site(site, params):
 
     # Create blog list pages.
     make_list(blog_posts, 'blog/index.html',
-              list_layout, item_layout, blog='blog', title='Blog', **params)
+              list_layout, item_layout, blog='blog', **params)
     make_list(news_posts, 'news/index.html',
-              list_layout, item_layout, blog='news', title='News', **params)
+              list_layout, item_layout, blog='news', **params)
 
     # Create RSS feeds.
     make_list(blog_posts, 'blog/rss.xml',
-              feed_xml, item_xml, blog='blog', title='Blog', **params)
+              feed_xml, item_xml, blog='blog', **params)
     make_list(news_posts, 'news/rss.xml',
-              feed_xml, item_xml, blog='news', title='News', **params)
+              feed_xml, item_xml, blog='news', **params)
 
 
 # Test parameter to be set temporarily by unit tests.
