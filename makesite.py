@@ -23,15 +23,14 @@
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+import datetime
 import distutils.dir_util
+import glob
 import json
 import os
-import shutil
 import re
-import glob
+import shutil
 import sys
-import json
-import datetime
 
 
 def fread(filename):
@@ -190,28 +189,32 @@ def main():
     distutils.dir_util.copy_tree(os.path.join(params['data_root'], 'static'), params['target_root'])
 
     # Load layouts.
-    page_layout = fread('layout/page.html')
-    post_layout = fread('layout/post.html')
-    list_layout = fread('layout/list.html')
-    item_layout = fread('layout/item.html')
-    feed_xml = fread('layout/feed.xml')
-    item_xml = fread('layout/item.xml')
+    layout_path = os.path.join(params['data_root'], 'layout')
+
+    page_layout = fread(os.path.join(layout_path, 'page.html'))
+    post_layout = fread(os.path.join(layout_path, 'post.html'))
+    list_layout = fread(os.path.join(layout_path, 'list.html'))
+    item_layout = fread(os.path.join(layout_path, 'item.html'))
+    feed_xml = fread(os.path.join(layout_path, 'feed.xml'))
+    item_xml = fread(os.path.join(layout_path, 'item.xml'))
 
     # Combine layouts to form final layouts.
     post_layout = render(page_layout, content=post_layout)
     list_layout = render(page_layout, content=list_layout)
 
     # Create site pages.
-    make_pages('content/_index.html', 'index.html',
+    content_path = os.path.join(params['data_root'], 'content')
+    
+    make_pages(os.path.join(content_path, '_index.html'), 'index.html',
                page_layout, **params)
-    make_pages('content/[!_]*.html', '{{ slug }}/index.html',
+    make_pages(os.path.join(content_path, '[!_]*.html'), '{{ slug }}/index.html',
                page_layout, **params)
 
     # Create blogs.
-    blog_posts = make_pages('content/blog/*.md',
+    blog_posts = make_pages(os.path.join(content_path, 'blog/*.md'),
                             'blog/{{ slug }}/index.html',
                             post_layout, blog='blog', **params)
-    news_posts = make_pages('content/news/*.html',
+    news_posts = make_pages(os.path.join(content_path, 'news/*.html'),
                             'news/{{ slug }}/index.html',
                             post_layout, blog='news', **params)
 
