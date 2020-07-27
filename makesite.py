@@ -23,6 +23,7 @@
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+import copy
 import datetime
 import distutils.dir_util
 import glob
@@ -173,6 +174,11 @@ def main():
         'subtitle': 'Lorem Ipsum',
         'author': 'Admin',
         'site_url': 'http://localhost:8000',
+        'sites': [{
+            'name': 'Default',
+            'hostname': 'localhost',
+            'color': '#000000',
+        }],
         'current_year': datetime.datetime.now().year
     }
 
@@ -180,12 +186,23 @@ def main():
     if os.path.isfile('params.json'):
         params.update(json.loads(fread('params.json')))
 
+    for site in params['sites']:
+        site_params = copy.deepcopy(params)
+        site_params['target_root'] = os.path.join(site_params['target_root'], site['name'].lower())
+        compile_site(site, site_params)
+
+def compile_site(site, params):
+
     # Create a new output directory from scratch.
     if os.path.isdir(params['target_root']):
         try:
             shutil.rmtree(params['target_root'])
         except PermissionError:
             pass
+
+    if not os.path.isdir(params['target_root']):
+        os.makedirs(params['target_root'])
+
     distutils.dir_util.copy_tree(os.path.join(params['data_root'], 'static'), params['target_root'])
 
     # Load layouts.
@@ -205,7 +222,7 @@ def main():
     # Create site pages.
     content_path = os.path.join(params['data_root'], 'content')
     
-    make_pages(os.path.join(content_path, '_index.html'), 'index.html',
+    make_pages(os.path.join(content_path, '_index.html'), 'index.html', 
                page_layout, **params)
     make_pages(os.path.join(content_path, '[!_]*.html'), '{{ slug }}/index.html',
                page_layout, **params)
