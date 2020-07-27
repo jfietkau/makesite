@@ -122,11 +122,12 @@ def render(template, **params):
                   template)
 
 
-def make_pages(src, dst, layout, **params):
+def make_pages(src, dst, template, **params):
     """Generate pages from page content."""
     items = []
 
     for src_path in glob.glob(src):
+        print(src_path)
         content = read_content(src_path)
 
         page_params = dict(params, **content)
@@ -134,7 +135,7 @@ def make_pages(src, dst, layout, **params):
         items.append(content)
 
         dst_path = render(dst, **page_params)
-        output = layout.render(**page_params)
+        output = template.render(**page_params)
 
         log('Rendering {} => {} ...', src_path, dst_path)
         fwrite(os.path.join(params['target_root'], dst_path), output)
@@ -142,7 +143,7 @@ def make_pages(src, dst, layout, **params):
     return sorted(items, key=lambda x: x['date'], reverse=True)
 
 
-def make_list(posts, dst, list_layout, **params):
+def make_list(posts, dst, template, **params):
     """Generate list page for a blog."""
     items = []
     for post in posts:
@@ -150,7 +151,7 @@ def make_list(posts, dst, list_layout, **params):
 
     params['posts'] = posts
     dst_path = render(dst, **params)
-    output = list_layout.render(**params)
+    output = template.render(**params)
 
     log('Rendering list => {} ...', dst_path)
     fwrite(os.path.join(params['target_root'], dst_path), output)
@@ -182,6 +183,7 @@ def main():
         site_params = copy.deepcopy(params)
         site_params['target_root'] = os.path.join(site_params['target_root'], site['name'].lower())
         site_params['title'] = site['name']
+        site_params['current_site'] = site['name']
         site_params['hostname'] = site['name']
         compile_site(site, site_params)
 
@@ -199,46 +201,53 @@ def compile_site(site, params):
 
     distutils.dir_util.copy_tree(os.path.join(params['data_root'], 'static'), params['target_root'])
 
-    # Load layouts.
-    layout_path = os.path.join(params['data_root'], 'layout')
+    # Load templates.
+    templates_path = os.path.join(params['data_root'], 'templates')
 
     template_env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(layout_path),
+        loader=jinja2.FileSystemLoader(templates_path),
         #autoescape=jinja2.select_autoescape(['html'])
     )
 
-    page_layout = template_env.get_template('page.html')
-    post_layout = template_env.get_template('post.html')
-    list_layout = template_env.get_template('list.html')
+    page_template = template_env.get_template('page.html')
+    post_template = template_env.get_template('post.html')
+    list_template = template_env.get_template('list.html')
     feed_xml = template_env.get_template('feed.xml')
 
     # Create site pages.
     content_path = os.path.join(params['data_root'], 'content')
-    
-    make_pages(os.path.join(content_path, 'index.html'), 'index.html',
-               page_layout, **params)
-    make_pages(os.path.join(content_path, '[!_]*.html'), '{{ slug }}.html',
-               page_layout, **params)
+    site_content_path = os.path.join(params['data_root'], 'content', site['name'].lower())
+
+    make_pages(os.path.join(content_path, '*.html'), '{{ slug }}.html',
+               page_template, **params)
+    make_pages(os.path.join(site_content_path, '*.html'), '{{ slug }}.html',
+               page_template, **params)
 
     # Create blogs.
     blog_posts = make_pages(os.path.join(content_path, 'blog/*.md'),
                             'blog/{{ slug }}.html',
-                            post_layout, blog='blog', **params)
+                            post_template, blog='blog', **params)
     news_posts = make_pages(os.path.join(content_path, 'news/*.html'),
                             'news/{{ slug }}.html',
-                            post_layout, blog='news', **params)
+                            post_template, blog='news', **params)
 
     # Create blog list pages.
     make_list(blog_posts, 'blog/index.html',
-              list_layout, blog='blog', **params)
+              list_template, blog='blog', **params)
     make_list(news_posts, 'news/index.html',
-              list_layout, blog='news', **params)
+              list_template, blog='news', **params)
 
     # Create RSS feeds.
     make_list(blog_posts, 'blog/rss.xml',
               feed_xml, blog='blog', **params)
     make_list(news_posts, 'news/rss.xml',
               feed_xml, blog='news', **params)
+
+    additional_templates = ['main.css']
+    for additional_template in additional_templates:
+        template = template_env.get_template(additional_template)
+        result = template.render(**params)
+        fwrite(os.path.join(params['target_root'], additional_template), result)
 
 
 # Test parameter to be set temporarily by unit tests.
