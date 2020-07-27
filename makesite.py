@@ -185,6 +185,7 @@ def main():
         site_params['title'] = site['name']
         site_params['current_site'] = site['name']
         site_params['hostname'] = site['name']
+        site_params['accent_color'] = site['accent_color']
         compile_site(site, site_params)
 
 def compile_site(site, params):
