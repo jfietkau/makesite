@@ -2,7 +2,7 @@
 
 # The MIT License (MIT)
 #
-# Copyright (c) 2018 Sunaina Pai
+# Copyright (c) 2020 Julian Fietkau, 2018 Sunaina Pai
 #
 # Permission is hereby granted, free of charge, to any person obtaining
 # a copy of this software and associated documentation files (the
@@ -32,7 +32,10 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
+
+import orcid
 
 
 def fread(filename):
@@ -127,7 +130,9 @@ def make_pages(src, dst, template, **params):
     items = []
 
     for src_path in glob.glob(src):
-        print(src_path)
+        if os.path.basename(src_path)[0].isdigit():
+            continue
+
         content = read_content(src_path)
 
         page_params = dict(params, **content)
@@ -159,25 +164,8 @@ def make_list(posts, dst, template, **params):
 
 def main():
 
-    # Default parameters.
-    params = {
-        'base_path': '',
-        'data_root': './',
-        'target_root': './_site',
-        'subtitle': 'Lorem Ipsum',
-        'author': 'Admin',
-        'site_url': 'http://localhost:8000',
-        'sites': [{
-            'name': 'Default',
-            'hostname': 'localhost',
-            'color': '#000000',
-        }],
-        'current_year': datetime.datetime.now().year
-    }
-
-    # If params.json exists, load it.
-    if os.path.isfile('params.json'):
-        params.update(json.loads(fread('params.json')))
+    params = json.loads(fread('params.json'))
+    params['current_year'] = datetime.datetime.now().year
 
     for site in params['sites']:
         site_params = copy.deepcopy(params)
@@ -187,6 +175,44 @@ def main():
         site_params['hostname'] = site['name']
         site_params['accent_color'] = site['accent_color']
         compile_site(site, site_params)
+
+def prepare_pub_files(pubs, params, template_env):
+    source_dir = os.path.join(params['data_root'], 'content', 'science')
+    cache_dir = os.path.join(params['data_root'], 'cache')
+    assets_dir = os.path.join(params['target_root'], 'assets')
+    if not os.path.isdir(assets_dir):
+        os.makedirs(assets_dir)
+    for pub in pubs:
+        pub_files = glob.glob(os.path.join(source_dir, str(pub['id'])+'.*'))
+        for pub_file in pub_files:
+            extension = os.path.splitext(pub_file)[1]
+            if extension == '.html':
+               pub['content_html'] = fread(pub_file)
+               continue
+            target_path = os.path.join(params['target_root'], pub['url_id'] + extension)
+            shutil.copy2(pub_file, target_path)
+            pub['has_download_'+extension[1:]] = True
+            if extension == '.pdf':
+                thumbnail_path = os.path.join(cache_dir, pub['url_id'] + '_thumbnail.png')
+                if not os.path.isfile(thumbnail_path):
+                    subprocess.run(['convert', '-density', '600', target_path+'[0]',
+                                    '-alpha', 'remove', '-resize', '600', thumbnail_path])
+                thumbnail_final_path = os.path.join(params['target_root'], 'assets', pub['url_id'] + '_thumbnail.png')
+                shutil.copy2(thumbnail_path, thumbnail_final_path)
+                pub['has_thumbnail'] = True
+                if not os.path.isfile(os.path.join(cache_dir, pub['url_id'] + '_page1.svg')):
+                    svg_path = os.path.join(cache_dir, pub['url_id'] + '_page%d.svg')
+                    subprocess.run(['pdf2svg', target_path, svg_path, 'all'])
+                svg_pages = glob.glob(os.path.join(cache_dir, pub['url_id'] + '_page*.svg'))
+                for svg in svg_pages:
+                    svg_final_path = os.path.join(params['target_root'], 'assets', os.path.basename(svg))
+                    shutil.copy2(svg, svg_final_path)
+                if len(svg_pages) > 0:
+                    pub['content_svg'] = len(svg_pages)
+        pub_template = template_env.get_template('science/publication-page.html')
+        params['title'] = pub['title']
+        output = pub_template.render(publication=pub, **params)
+        fwrite(os.path.join(params['target_root'], pub['url_id']+'.html'), output)
 
 def compile_site(site, params):
 
@@ -200,14 +226,16 @@ def compile_site(site, params):
     if not os.path.isdir(params['target_root']):
         os.makedirs(params['target_root'])
 
-    distutils.dir_util.copy_tree(os.path.join(params['data_root'], 'static'), params['target_root'])
+    for static_source in ['all', site['name'].lower()]:
+        static_path = os.path.join(params['data_root'], 'static', static_source)
+        if os.path.isdir(static_path):
+            distutils.dir_util.copy_tree(static_path, params['target_root'])
 
     # Load templates.
     templates_path = os.path.join(params['data_root'], 'templates')
 
     template_env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(templates_path),
-        #autoescape=jinja2.select_autoescape(['html'])
+        loader=jinja2.FileSystemLoader(templates_path)
     )
 
     page_template = template_env.get_template('page.html')
@@ -223,6 +251,20 @@ def compile_site(site, params):
                page_template, **params)
     make_pages(os.path.join(site_content_path, '*.html'), '{{ slug }}.html',
                page_template, **params)
+
+    if site['name'] == 'Science':
+        pubs = orcid.get(site['orcid'], os.path.join(params['data_root'], 'cache'))
+        with open(os.path.join(params['data_root'], 'content', 'science', 'metadata.json')) as fp:
+            metadata = json.load(fp)
+        for pub in pubs:
+            pub_id = str(pub['id'])
+            if pub_id in metadata:
+                pub.update(metadata[pub_id])
+        prepare_pub_files(pubs, params, template_env)
+        pubs_template = template_env.get_template('science/publications.html')
+        params['title'] = 'Publications'
+        output = pubs_template.render(publications=pubs, **params)
+        fwrite(os.path.join(params['target_root'], 'publications.html'), output)
 
     # Create blogs.
     blog_posts = make_pages(os.path.join(content_path, 'blog/*.md'),
