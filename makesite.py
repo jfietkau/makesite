@@ -211,7 +211,7 @@ def prepare_pub_files(pubs, params, template_env):
                     pub['content_svg'] = len(svg_pages)
         pub_template = template_env.get_template('science/publication-page.html')
         params['title'] = pub['title']
-        output = pub_template.render(publication=pub, **params)
+        output = pub_template.render(publication=pub, css='publication.css', **params)
         fwrite(os.path.join(params['target_root'], pub['url_id']+'.html'), output)
 
 def compile_site(site, params):
@@ -254,7 +254,7 @@ def compile_site(site, params):
 
     if site['name'] == 'Science':
         pubs = orcid.get(site['orcid'], os.path.join(params['data_root'], 'cache'))
-        with open(os.path.join(params['data_root'], 'content', 'science', 'metadata.json')) as fp:
+        with open(os.path.join(params['data_root'], 'content', 'science', 'publications.json')) as fp:
             metadata = json.load(fp)
         for pub in pubs:
             pub_id = str(pub['id'])
@@ -265,6 +265,36 @@ def compile_site(site, params):
         params['title'] = 'Publications'
         output = pubs_template.render(publications=pubs, **params)
         fwrite(os.path.join(params['target_root'], 'publications.html'), output)
+
+        with open(os.path.join(params['data_root'], 'content', 'science', 'student_theses.json')) as fp:
+            student_theses = json.load(fp)
+        student_theses = [student_theses[id] for id in student_theses]
+        student_theses.sort(key=lambda t: t['year']+t['month']+t['day'])
+        student_theses.reverse()
+        print(student_theses)
+        source_dir = os.path.join(params['data_root'], 'content', 'science')
+        cache_dir = os.path.join(params['data_root'], 'cache')
+        assets_dir = os.path.join(params['target_root'], 'assets')
+        if not os.path.isdir(assets_dir):
+            os.makedirs(assets_dir)
+        for thesis in student_theses:
+            pdf_path = os.path.join(source_dir, str(thesis['url_id']) + '.pdf')
+            if not os.path.isfile(pdf_path):
+                continue
+            target_path = os.path.join(params['target_root'], thesis['url_id'] + '.pdf')
+            if thesis['enable_download']:
+                shutil.copy2(pdf_path, target_path)
+            thumbnail_path = os.path.join(cache_dir, thesis['url_id'] + '_thumbnail.png')
+            if not os.path.isfile(thumbnail_path):
+                subprocess.run(['convert', '-density', '600', pdf_path+'[0]',
+                                '-alpha', 'remove', '-resize', '400', thumbnail_path])
+            thumbnail_final_path = os.path.join(params['target_root'], 'assets', thesis['url_id'] + '_thumbnail.png')
+            shutil.copy2(thumbnail_path, thumbnail_final_path)
+            thesis['has_thumbnail'] = True
+        teaching_template = template_env.get_template('science/teaching.html')
+        params['title'] = 'Teaching'
+        output = teaching_template.render(student_theses=student_theses, **params)
+        fwrite(os.path.join(params['target_root'], 'teaching.html'), output)
 
     # Create blogs.
     blog_posts = make_pages(os.path.join(content_path, 'blog/*.md'),
