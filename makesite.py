@@ -67,10 +67,10 @@ def read_headers(text):
         yield match.group(1), match.group(2), match.end()
 
 
-def rfc_2822_format(date_str):
-    """Convert yyyy-mm-dd date string to RFC 2822 format date string."""
-    d = datetime.datetime.strptime(date_str, '%Y-%m-%d')
-    return d.strftime('%a, %d %b %Y %H:%M:%S +0000')
+def rfc_2822_format(date):
+    if not isinstance(date, datetime.datetime):
+        date = datetime.datetime.strptime(date, '%Y-%m-%d')
+    return date.strftime('%a, %d %b %Y %H:%M:%S +0000')
 
 
 def read_content(filename):
@@ -206,15 +206,11 @@ def compile_site(site, params):
         loader=jinja2.FileSystemLoader(templates_path)
     )
 
-    page_template = template_env.get_template('page.html')
-    post_template = template_env.get_template('post.html')
-    list_template = template_env.get_template('list.html')
-    feed_xml = template_env.get_template('feed.xml')
-
     # Create site pages.
     content_path = os.path.join(params['data_root'], 'content')
     site_content_path = os.path.join(params['data_root'], 'content', site['name'].lower())
 
+    page_template = template_env.get_template('page.html')
     make_pages(os.path.join(content_path, '*.html'), '{{ slug }}.html',
                page_template, **params)
     make_pages(os.path.join(site_content_path, '*.html'), '{{ slug }}.html',
@@ -228,13 +224,14 @@ def compile_site(site, params):
             pub_id = str(pub['id'])
             if pub_id in metadata:
                 pub.update(metadata[pub_id])
+            pub['rfc_2822_date'] = rfc_2822_format(datetime.datetime(int(pub['year']), int(pub['month']), int(pub['day']), 0, 0, 0))
         prepare_pub_files(pubs, params, template_env)
         pubs_template = template_env.get_template('science/publications.html')
         params['title'] = 'Publications'
         output = pubs_template.render(publications=pubs, **params)
         fwrite(os.path.join(params['target_root'], 'publications.html'), output)
-        feed_template = template_env.get_template('feed.xml')
-        feed_output = feed_template.render(publications=pubs, **params)
+        feed_template = template_env.get_template('science/publications.xml')
+        feed_output = feed_template.render(pubs=pubs, **params)
         fwrite(os.path.join(params['target_root'], 'publications.xml'), feed_output)
 
         with open(os.path.join(params['data_root'], 'content', 'science', 'student_theses.json')) as fp:
@@ -277,13 +274,14 @@ def main():
 
     params = json.loads(fread('params.json'))
     params['current_year'] = datetime.datetime.now().year
+    params['rfc_2822_now'] = rfc_2822_format(datetime.datetime.utcnow())
 
     for site in params['sites']:
         site_params = copy.deepcopy(params)
         site_params['target_root'] = os.path.join(site_params['target_root'], site['name'].lower())
         site_params['title'] = site['name']
         site_params['current_site'] = site['name']
-        site_params['hostname'] = site['name']
+        site_params['hostname'] = site['hostname']
         site_params['accent_color'] = site['accent_color']
         compile_site(site, site_params)
 
