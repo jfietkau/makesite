@@ -59,11 +59,6 @@ def log(msg, *args):
     sys.stderr.write(msg.format(*args) + '\n')
 
 
-def truncate(text, words=25):
-    """Remove tags and truncate text to the specified number of words."""
-    return ' '.join(re.sub('(?s)<.*?>', ' ', text).split()[:words])
-
-
 def read_headers(text):
     """Parse headers in text and yield (key, value, end-index) tuples."""
     for match in re.finditer(r'\s*<!--\s*(.+?)\s*:\s*(.+?)\s*-->\s*|.+', text):
@@ -146,35 +141,7 @@ def make_pages(src, dst, template, **params):
         fwrite(os.path.join(params['target_root'], dst_path), output)
 
     return sorted(items, key=lambda x: x['date'], reverse=True)
-
-
-def make_list(posts, dst, template, **params):
-    """Generate list page for a blog."""
-    items = []
-    for post in posts:
-        post['summary'] = truncate(post['content'])
-
-    params['posts'] = posts
-    dst_path = render(dst, **params)
-    output = template.render(**params)
-
-    log('Rendering list => {} ...', dst_path)
-    fwrite(os.path.join(params['target_root'], dst_path), output)
-
-
-def main():
-
-    params = json.loads(fread('params.json'))
-    params['current_year'] = datetime.datetime.now().year
-
-    for site in params['sites']:
-        site_params = copy.deepcopy(params)
-        site_params['target_root'] = os.path.join(site_params['target_root'], site['name'].lower())
-        site_params['title'] = site['name']
-        site_params['current_site'] = site['name']
-        site_params['hostname'] = site['name']
-        site_params['accent_color'] = site['accent_color']
-        compile_site(site, site_params)
+        
 
 def prepare_pub_files(pubs, params, template_env):
     source_dir = os.path.join(params['data_root'], 'content', 'science')
@@ -213,6 +180,7 @@ def prepare_pub_files(pubs, params, template_env):
         params['title'] = pub['title']
         output = pub_template.render(publication=pub, css='publication.css', **params)
         fwrite(os.path.join(params['target_root'], pub['url_id']+'.html'), output)
+
 
 def compile_site(site, params):
 
@@ -265,13 +233,15 @@ def compile_site(site, params):
         params['title'] = 'Publications'
         output = pubs_template.render(publications=pubs, **params)
         fwrite(os.path.join(params['target_root'], 'publications.html'), output)
+        feed_template = template_env.get_template('feed.xml')
+        feed_output = feed_template.render(publications=pubs, **params)
+        fwrite(os.path.join(params['target_root'], 'publications.xml'), feed_output)
 
         with open(os.path.join(params['data_root'], 'content', 'science', 'student_theses.json')) as fp:
             student_theses = json.load(fp)
         student_theses = [student_theses[id] for id in student_theses]
         student_theses.sort(key=lambda t: t['year']+t['month']+t['day'])
         student_theses.reverse()
-        print(student_theses)
         source_dir = os.path.join(params['data_root'], 'content', 'science')
         cache_dir = os.path.join(params['data_root'], 'cache')
         assets_dir = os.path.join(params['target_root'], 'assets')
@@ -296,31 +266,26 @@ def compile_site(site, params):
         output = teaching_template.render(student_theses=student_theses, **params)
         fwrite(os.path.join(params['target_root'], 'teaching.html'), output)
 
-    # Create blogs.
-    blog_posts = make_pages(os.path.join(content_path, 'blog/*.md'),
-                            'blog/{{ slug }}.html',
-                            post_template, blog='blog', **params)
-    news_posts = make_pages(os.path.join(content_path, 'news/*.html'),
-                            'news/{{ slug }}.html',
-                            post_template, blog='news', **params)
-
-    # Create blog list pages.
-    make_list(blog_posts, 'blog/index.html',
-              list_template, blog='blog', **params)
-    make_list(news_posts, 'news/index.html',
-              list_template, blog='news', **params)
-
-    # Create RSS feeds.
-    make_list(blog_posts, 'blog/rss.xml',
-              feed_xml, blog='blog', **params)
-    make_list(news_posts, 'news/rss.xml',
-              feed_xml, blog='news', **params)
-
     additional_templates = ['main.css']
     for additional_template in additional_templates:
         template = template_env.get_template(additional_template)
         result = template.render(**params)
         fwrite(os.path.join(params['target_root'], additional_template), result)
+
+
+def main():
+
+    params = json.loads(fread('params.json'))
+    params['current_year'] = datetime.datetime.now().year
+
+    for site in params['sites']:
+        site_params = copy.deepcopy(params)
+        site_params['target_root'] = os.path.join(site_params['target_root'], site['name'].lower())
+        site_params['title'] = site['name']
+        site_params['current_site'] = site['name']
+        site_params['hostname'] = site['name']
+        site_params['accent_color'] = site['accent_color']
+        compile_site(site, site_params)
 
 
 # Test parameter to be set temporarily by unit tests.
