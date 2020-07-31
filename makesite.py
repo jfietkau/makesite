@@ -263,6 +263,15 @@ def compile_site(site, params):
         output = teaching_template.render(student_theses=student_theses, **params)
         fwrite(os.path.join(params['target_root'], 'teaching.html'), output)
 
+    if site['name'] == 'Software':
+        with open(os.path.join(params['data_root'], 'content', 'software', 'projects.json')) as fp:
+            projects = json.load(fp)
+        projects = [projects[id] for id in projects]
+        projects.sort(key=lambda p: p['title'].lower())
+        template = template_env.get_template('software/index.html')
+        output = template.render(projects=projects, **params)
+        fwrite(os.path.join(params['target_root'], 'index.html'), output)
+
     additional_templates = ['main.css']
     for additional_template in additional_templates:
         template = template_env.get_template(additional_template)
