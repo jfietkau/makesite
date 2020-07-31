@@ -272,6 +272,21 @@ def compile_site(site, params):
         output = template.render(projects=projects, **params)
         fwrite(os.path.join(params['target_root'], 'index.html'), output)
 
+        template = template_env.get_template('software/projects.html')
+        for category in ['major', 'minor']:
+            if category == 'major':
+                params['title'] = 'Major Projects'
+            elif category == 'minor':
+                params['title'] = 'Smaller Tools'
+            output = template.render(projects=projects, project_category=category, **params)
+            fwrite(os.path.join(params['target_root'], params['title'].lower().replace(' ', '_') + '.html'), output)
+
+        for proj in projects:
+            template = template_env.get_template('software/project.html')
+            params['title'] = proj['title']
+            output = template.render(proj=proj, **params)
+            fwrite(os.path.join(params['target_root'], proj['url_id'] + '.html'), output)
+
     additional_templates = ['main.css']
     for additional_template in additional_templates:
         template = template_env.get_template(additional_template)
