@@ -370,29 +370,44 @@ def compile_site(site, params):
         add_to_build(output, additional_template, params)
 
 
-def main():
+def main(argv):
 
     params = json.loads(fread('params.json'))
-    params['current_year'] = datetime.datetime.now().year
+    params['current_year'] = datetime.datetime.utcnow().year
     params['rfc_2822_now'] = rfc_2822_format(datetime.datetime.utcnow())
-
-    for site in params['sites']:
-        site_params = copy.deepcopy(params)
-        del site_params['target_root']
-        site_params['site_dir'] = site['name'].lower()
-        site_params['title'] = site['name']
-        site_params['current_site'] = site['name']
-        site_params['hostname'] = site['hostname']
-        site_params['accent_color'] = site['accent_color']
-        compile_site(site, site_params)
-
     build_path = os.path.join(params['data_root'], 'build')
-    cmd = ['rsync', '--recursive', '--copy-links', '--safe-links', '--times', '--delete', build_path + '/', params['target_root'] + '/']
-    subprocess.run(cmd)
+
+    if 'clean' in argv:
+        if os.path.isdir(build_path):
+            for name in os.listdir(build_path):
+                item = os.path.join(build_path, name)
+                if os.path.isdir(item):
+                    shutil.rmtree(item)
+                else:
+                    os.remove(item)
+    else:
+        if 'deploy' in argv:
+            params.update(params['env']['dev'])
+        else:
+            params.update(params['env']['prod'])
+        del params['env']
+
+        for site in params['sites']:
+            site_params = copy.deepcopy(params)
+            del site_params['target_root']
+            site_params['site_dir'] = site['name'].lower()
+            site_params['title'] = site['name']
+            site_params['current_site'] = site['name']
+            site_params['hostname'] = site['hostname']
+            site_params['accent_color'] = site['accent_color']
+            compile_site(site, site_params)
+
+        cmd = ['rsync', '--recursive', '--copy-links', '--safe-links', '--times', '--delete', build_path + '/', params['target_root'] + '/']
+        subprocess.run(cmd)
 
 # Test parameter to be set temporarily by unit tests.
 _test = None
 
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv)
