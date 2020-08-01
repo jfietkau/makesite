@@ -287,6 +287,53 @@ def compile_site(site, params):
             output = template.render(proj=proj, **params)
             fwrite(os.path.join(params['target_root'], proj['url_id'] + '.html'), output)
 
+    if site['name'] == 'Media':
+        with open(os.path.join(params['data_root'], 'content', 'media', 'games.json')) as fp:
+            projects = json.load(fp)
+        projects = [projects[id] for id in projects]
+        projects.sort(key=lambda p: p['date'])
+        projects.reverse()
+        template = template_env.get_template('media/games.html')
+        params['title'] = 'Games'
+        output = template.render(projects=projects, **params)
+        fwrite(os.path.join(params['target_root'], 'games.html'), output)
+
+        for proj in projects:
+            template = template_env.get_template('media/game.html')
+            params['title'] = proj['title']
+            output = template.render(proj=proj, **params)
+            fwrite(os.path.join(params['target_root'], proj['url_id'] + '.html'), output)
+
+        with open(os.path.join(params['data_root'], 'content', 'media', 'videos.json')) as fp:
+            videos = json.load(fp)
+        videos = [videos[id] for id in videos]
+        videos.sort(key=lambda v: v['date']+v['title'])
+        template = template_env.get_template('media/videos.html')
+        params['title'] = 'Videos: Working with LaTeX'
+        output = template.render(videos=videos, **params)
+        fwrite(os.path.join(params['target_root'], 'videos.html'), output)
+
+        for video in videos:
+            template = template_env.get_template('media/video.html')
+            params['title'] = video['title']
+            output = template.render(video=video, **params)
+            fwrite(os.path.join(params['target_root'], video['url_id'] + '.html'), output)
+
+        with open(os.path.join(params['data_root'], 'content', 'media', 'misc.json')) as fp:
+            projects = json.load(fp)
+        projects = [projects[id] for id in projects]
+        projects.sort(key=lambda p: p['title'])
+        template = template_env.get_template('media/miscs.html')
+        params['title'] = 'Miscellaneous'
+        output = template.render(projects=projects, **params)
+        fwrite(os.path.join(params['target_root'], 'misc.html'), output)
+
+        for misc in projects:
+            template = template_env.get_template('media/misc.html')
+            params['title'] = misc['title']
+            output = template.render(proj=misc, **params)
+            fwrite(os.path.join(params['target_root'], misc['url_id'] + '.html'), output)
+
     additional_templates = ['main.css']
     for additional_template in additional_templates:
         template = template_env.get_template(additional_template)
