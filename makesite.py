@@ -177,6 +177,56 @@ def add_to_build(source, target, params):
                 pass
 
 
+def sort_into_structure(title, breadcrumb, path, weight, structure):
+    current = structure
+    while '/' in breadcrumb:
+        segment = breadcrumb[0:breadcrumb.index('/')]
+        if segment not in current:
+            current[segment] = {}
+        if 'children' not in current[segment]:
+            current[segment]['children'] = {}
+        current = current[segment]['children']
+        breadcrumb = breadcrumb[breadcrumb.index('/')+1:]
+    if breadcrumb not in current:
+        current[breadcrumb] = {}
+    current[breadcrumb]['title'] = title
+    current[breadcrumb]['path'] = path
+    current[breadcrumb]['weight'] = weight
+    return structure
+
+
+def cleanup_structure(structure, collate_common=False):
+    with open('/home/julian/Arbeitsfläche/strucutre.json', 'w') as fp:
+        json.dump(structure, fp, indent=4)
+    shared_keys = None
+    for entry in structure:
+        if 'children' in structure[entry]:
+            sections = [section for section in structure if 'children' in structure[section]]
+            if collate_common and len(sections) > 1:
+                if shared_keys is None:
+                    shared_keys = [key for key in structure[entry]['children']]
+                else:
+                    for key in copy.copy(shared_keys):
+                        if key not in structure[entry]['children']:
+                            shared_keys.remove(key)
+    if shared_keys is not None and len(shared_keys) > 0:
+        for shared_key in shared_keys:
+            entries = []
+            for section in structure:
+                if shared_key in structure[section]['children']:
+                    entries.append(structure[section]['children'][shared_key])
+                    del structure[section]['children'][shared_key]
+        structure[entries[0]['title']] = entries[0]
+    for entry in structure:
+        if structure[entry]['title'].startswith('Student Project: '):
+            structure[entry]['title'] = structure[entry]['title'][17:]
+        if 'children' in structure[entry]:
+            cleanup_structure(structure[entry]['children'], collate_common=False)
+            children = [structure[entry]['children'][child] for child in structure[entry]['children']]
+            children.sort(key=lambda c: c['weight'])
+            structure[entry]['children'] = children
+
+
 def make_pages(page_list, destination, template, **params):
     """Generate pages from page content."""
     items = []
@@ -194,7 +244,18 @@ def make_pages(page_list, destination, template, **params):
         dst_path = render(destination, **page_params)
         output = template.render(**page_params)
 
-        #log('Rendering {} ...', dst_path)
+        if os.path.basename(src_path)[0] != '_' and os.path.basename(src_path) != 'index.html':
+            if 'breadcrumb' in page_params:
+                if ' ' in page_params['breadcrumb']:
+                    breadcrumb, weight = page_params['breadcrumb'].split(' ')
+                    weight = int(weight)
+                else:
+                    breadcrumb = page_params['breadcrumb']
+                    weight = 0
+            else:
+                breadcrumb = dst_path[:-5]
+                weight = 0
+            sort_into_structure(page_params['title'], params['current_site'] + '/' + breadcrumb, dst_path[:-5], weight, params['structure'])
         add_to_build(output, dst_path, params)
 
     return sorted(items, key=lambda x: x['date'], reverse=True)
@@ -232,6 +293,8 @@ def prepare_pub_files(pubs, params, template_env):
         pub_template = template_env.get_template('science/publication-page.html')
         params['title'] = pub['title']
         output = pub_template.render(publication=pub, css='publication.css', **params)
+        weight = -1 * int(pub['year']+pub['month']+pub['day'])
+        sort_into_structure(pub['title'], params['current_site'] + '/publications/' + pub['url_id'], pub['url_id'], weight, params['structure'])
         add_to_build(output, pub['url_id']+'.html', params)
 
 
@@ -249,10 +312,7 @@ def compile_site(site, params):
 
     # Load templates.
     templates_path = os.path.join(params['data_root'], 'templates')
-
-    template_env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(templates_path)
-    )
+    template_env = jinja2.Environment(loader=jinja2.FileSystemLoader(templates_path))
 
     # Create site pages.
     content_path = os.path.join(params['data_root'], 'content', 'all')
@@ -263,14 +323,15 @@ def compile_site(site, params):
     for candidate in glob.glob(os.path.join(content_path, '*.html')):
         if candidate.replace(content_path, site_content_path) not in page_list:
             page_list.append(candidate)
-    make_pages(page_list, '{{ slug }}.html',
-               page_template, **params)
+    make_pages(page_list, '{{ slug }}.html', page_template, **params)
 
     if site['name'] == 'Science':
         orcid_cache_dir = os.path.join(params['data_root'], 'cache', 'orcid')
         if not os.path.isdir(orcid_cache_dir):
             os.makedirs(orcid_cache_dir)
         pubs = orcid.get(site['orcid'], orcid_cache_dir)
+        pubs.sort(key=lambda p: p['year']+p['month']+p['day'])
+        pubs.reverse()
         with open(os.path.join(params['data_root'], 'content', 'science', 'publications.json')) as fp:
             metadata = json.load(fp)
         for pub in pubs:
@@ -282,6 +343,7 @@ def compile_site(site, params):
         pubs_template = template_env.get_template('science/publications.html')
         params['title'] = 'Publications'
         output = pubs_template.render(publications=pubs, **params)
+        sort_into_structure(params['title'], params['current_site'] + '/publications', 'publications', 10, params['structure'])
         add_to_build(output, 'publications.html', params)
         feed_template = template_env.get_template('science/publications.xml')
         feed_output = feed_template.render(pubs=pubs, **params)
@@ -311,6 +373,8 @@ def compile_site(site, params):
         teaching_template = template_env.get_template('science/teaching.html')
         params['title'] = 'Teaching'
         output = teaching_template.render(student_theses=student_theses, **params)
+        sort_into_structure(params['title'], params['current_site'] + '/teaching', 'teaching', 20, params['structure'])
+        sort_into_structure('Student Projects', params['current_site'] + '/teaching/student_projects', 'teaching#student_projects', 20, params['structure'])
         add_to_build(output, 'teaching.html', params)
 
     if site['name'] == 'Software':
@@ -323,18 +387,32 @@ def compile_site(site, params):
         add_to_build(output, 'index.html', params)
 
         template = template_env.get_template('software/projects.html')
+        category_data = {
+            'major': {
+                'title': 'Major Projects',
+                'url_segment': 'major_projects',
+                'weight': 1
+            },
+            'minor': {
+                'title': 'Smaller Tools',
+                'url_segment': 'smaller_tools',
+                'weight': 2
+            }
+        }
         for category in ['major', 'minor']:
-            if category == 'major':
-                params['title'] = 'Major Projects'
-            elif category == 'minor':
-                params['title'] = 'Smaller Tools'
+            params['title'] = category_data[category]['title']
             output = template.render(projects=projects, project_category=category, **params)
-            add_to_build(output, params['title'].lower().replace(' ', '_') + '.html', params)
+            url_segment = category_data[category]['url_segment']
+            sort_into_structure(params['title'], params['current_site'] + '/' + url_segment, url_segment, category_data[category]['weight'], params['structure'])
+            add_to_build(output, url_segment + '.html', params)
 
+        weight = 1
         for proj in projects:
             template = template_env.get_template('software/project.html')
             params['title'] = proj['title']
             output = template.render(proj=proj, **params)
+            sort_into_structure(params['title'], params['current_site'] + '/' + category_data[proj['category']]['url_segment'] + '/' + proj['url_id'], proj['url_id'], weight, params['structure'])
+            weight += 1
             add_to_build(output, proj['url_id'] + '.html', params)
 
     if site['name'] == 'Media':
@@ -346,13 +424,17 @@ def compile_site(site, params):
         template = template_env.get_template('media/games.html')
         params['title'] = 'Games'
         output = template.render(projects=games, **params)
+        sort_into_structure(params['title'], params['current_site'] + '/games', 'games', 1, params['structure'])
         add_to_build(output, 'games.html', params)
 
+        weight = 1
         for proj in games:
             template = template_env.get_template('media/game.html')
             params['title'] = proj['title']
             proj['pretty_date'] = pretty_format(proj['date'])
             output = template.render(proj=proj, **params)
+            sort_into_structure(params['title'], params['current_site'] + '/games/' + proj['url_id'], proj['url_id'], weight, params['structure'])
+            weight += 1
             add_to_build(output, proj['url_id'] + '.html', params)
 
         with open(os.path.join(params['data_root'], 'content', 'media', 'videos.json')) as fp:
@@ -362,13 +444,17 @@ def compile_site(site, params):
         template = template_env.get_template('media/videos.html')
         params['title'] = 'Videos: Working with LaTeX'
         output = template.render(videos=videos, **params)
+        sort_into_structure(params['title'], params['current_site'] + '/videos', 'videos', 2, params['structure'])
         add_to_build(output, 'videos.html', params)
 
+        weight = 1
         for video in videos:
             template = template_env.get_template('media/video.html')
             params['title'] = video['title']
             video['pretty_date'] = pretty_format(video['date'])
             output = template.render(video=video, **params)
+            sort_into_structure(params['title'], params['current_site'] + '/videos/' + video['url_id'], video['url_id'], weight, params['structure'])
+            weight += 1
             add_to_build(output, video['url_id'] + '.html', params)
 
         with open(os.path.join(params['data_root'], 'content', 'media', 'misc.json')) as fp:
@@ -378,13 +464,17 @@ def compile_site(site, params):
         template = template_env.get_template('media/miscs.html')
         params['title'] = 'Miscellaneous'
         output = template.render(projects=miscs, **params)
+        sort_into_structure(params['title'], params['current_site'] + '/misc', 'misc', 3, params['structure'])
         add_to_build(output, 'misc.html', params)
 
+        weight = 1
         for misc in miscs:
             template = template_env.get_template('media/misc.html')
             params['title'] = misc['title']
             misc['pretty_date'] = pretty_format(misc['date'])
             output = template.render(proj=misc, **params)
+            sort_into_structure(params['title'], params['current_site'] + '/misc/' + misc['url_id'], misc['url_id'], weight, params['structure'])
+            weight += 1
             add_to_build(output, misc['url_id'] + '.html', params)
 
         template = template_env.get_template('media/index.html')
@@ -429,6 +519,7 @@ def main(argv):
     params = json.loads(fread('params.json'))
     params['current_year'] = datetime.datetime.utcnow().year
     params['rfc_2822_now'] = rfc_2822_format(datetime.datetime.utcnow())
+    structure = {}
     build_path = os.path.join(params['data_root'], 'build')
 
     if 'clean' in argv:
@@ -446,15 +537,41 @@ def main(argv):
             params.update(params['env']['dev'])
         del params['env']
 
+        weight = 1
         for site in params['sites']:
             site_params = copy.deepcopy(params)
             del site_params['target_root']
+            site_params['structure'] = structure
             site_params['site_dir'] = site['name'].lower()
             site_params['title'] = site['name']
             site_params['current_site'] = site['name']
             site_params['hostname'] = site['hostname']
             site_params['accent_color'] = site['accent_color']
+            structure_title = site_params['title']
+            if structure_title == 'Me':
+                structure_title = 'About Me'
+            print(structure_title)
+            sort_into_structure(structure_title, site_params['current_site'], params['protocol']+site_params['hostname']+site_params['hostname_suffix'], weight, structure)
+            weight += 1
             compile_site(site, site_params)
+
+        cleanup_structure(structure, collate_common=True)
+
+        templates_path = os.path.join(params['data_root'], 'templates')
+        template_env = jinja2.Environment(loader=jinja2.FileSystemLoader(templates_path))
+        for site in params['sites']:
+            site_params = copy.deepcopy(params)
+            del site_params['target_root']
+            site_params['structure'] = structure
+            site_params['site_dir'] = site['name'].lower()
+            site_params['title'] = 'Sitemap'
+            site_params['current_site'] = site['name']
+            site_params['hostname'] = site['hostname']
+            site_params['accent_color'] = site['accent_color']
+            template = template_env.get_template('sitemap.html')
+            params['title'] = 'Sitemap'
+            output = template.render(**site_params)
+            add_to_build(output, 'sitemap.html', site_params)
 
         cmd = ['rsync', '--recursive', '--copy-links', '--safe-links', '--times', '--delete', build_path + '/', params['target_root'] + '/']
         subprocess.run(cmd)
