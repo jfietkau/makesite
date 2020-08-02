@@ -30,6 +30,7 @@ import glob
 import jinja2
 import json
 import os
+import PIL.Image
 import re
 import shutil
 import subprocess
@@ -71,6 +72,19 @@ def rfc_2822_format(date):
     if not isinstance(date, datetime.datetime):
         date = datetime.datetime.strptime(date, '%Y-%m-%d')
     return date.strftime('%a, %d %b %Y %H:%M:%S +0000')
+
+
+def pretty_format(date):
+    if not isinstance(date, datetime.datetime):
+        date = datetime.datetime.strptime(date, '%Y-%m-%d')
+    ordinal_suffix = 'th'
+    if date.day in [1, 21, 31]:
+        ordinal_suffix = 'st'
+    elif date.day in [2, 22]:
+        ordinal_suffix = 'nd'
+    elif date.day in [3, 23]:
+        ordinal_suffix = 'rd'
+    return date.strftime('%b %-d' + ordinal_suffix + ', %Y')
 
 
 def read_content(filename):
@@ -188,7 +202,9 @@ def make_pages(page_list, destination, template, **params):
 
 def prepare_pub_files(pubs, params, template_env):
     source_dir = os.path.join(params['data_root'], 'content', 'science')
-    cache_dir = os.path.join(params['data_root'], 'cache')
+    cache_dir = os.path.join(params['data_root'], 'cache', 'publications')
+    if not os.path.isdir(cache_dir):
+        os.makedirs(cache_dir)
     for pub in pubs:
         pub_files = glob.glob(os.path.join(source_dir, str(pub['id'])+'.*'))
         for pub_file in pub_files:
@@ -251,7 +267,10 @@ def compile_site(site, params):
                page_template, **params)
 
     if site['name'] == 'Science':
-        pubs = orcid.get(site['orcid'], os.path.join(params['data_root'], 'cache'))
+        orcid_cache_dir = os.path.join(params['data_root'], 'cache', 'orcid')
+        if not os.path.isdir(orcid_cache_dir):
+            os.makedirs(orcid_cache_dir)
+        pubs = orcid.get(site['orcid'], orcid_cache_dir)
         with open(os.path.join(params['data_root'], 'content', 'science', 'publications.json')) as fp:
             metadata = json.load(fp)
         for pub in pubs:
@@ -274,14 +293,16 @@ def compile_site(site, params):
         student_theses.sort(key=lambda t: t['year']+t['month']+t['day'])
         student_theses.reverse()
         source_dir = os.path.join(params['data_root'], 'content', 'science')
-        cache_dir = os.path.join(params['data_root'], 'cache')
+        student_theses_cache_dir = os.path.join(params['data_root'], 'cache', 'student_theses')
+        if not os.path.isdir(student_theses_cache_dir):
+            os.makedirs(student_theses_cache_dir)
         for thesis in student_theses:
             pdf_path = os.path.join(source_dir, str(thesis['url_id']) + '.pdf')
             if not os.path.isfile(pdf_path):
                 continue
             if thesis['enable_download']:
                 add_to_build(pdf_path, thesis['url_id'] + '.pdf', params)
-            thumbnail_path = os.path.join(cache_dir, thesis['url_id'] + '_thumbnail.png')
+            thumbnail_path = os.path.join(student_theses_cache_dir, thesis['url_id'] + '_thumbnail.png')
             if not os.path.isfile(thumbnail_path):
                 subprocess.run(['convert', '-density', '600', pdf_path+'[0]',
                                 '-alpha', 'remove', '-resize', '400', thumbnail_path])
@@ -318,18 +339,19 @@ def compile_site(site, params):
 
     if site['name'] == 'Media':
         with open(os.path.join(params['data_root'], 'content', 'media', 'games.json')) as fp:
-            projects = json.load(fp)
-        projects = [projects[id] for id in projects]
-        projects.sort(key=lambda p: p['date'])
-        projects.reverse()
+            games = json.load(fp)
+        games = [games[id] for id in games]
+        games.sort(key=lambda p: p['date'])
+        games.reverse()
         template = template_env.get_template('media/games.html')
         params['title'] = 'Games'
-        output = template.render(projects=projects, **params)
+        output = template.render(projects=games, **params)
         add_to_build(output, 'games.html', params)
 
-        for proj in projects:
+        for proj in games:
             template = template_env.get_template('media/game.html')
             params['title'] = proj['title']
+            proj['pretty_date'] = pretty_format(proj['date'])
             output = template.render(proj=proj, **params)
             add_to_build(output, proj['url_id'] + '.html', params)
 
@@ -345,23 +367,30 @@ def compile_site(site, params):
         for video in videos:
             template = template_env.get_template('media/video.html')
             params['title'] = video['title']
+            video['pretty_date'] = pretty_format(video['date'])
             output = template.render(video=video, **params)
             add_to_build(output, video['url_id'] + '.html', params)
 
         with open(os.path.join(params['data_root'], 'content', 'media', 'misc.json')) as fp:
-            projects = json.load(fp)
-        projects = [projects[id] for id in projects]
-        projects.sort(key=lambda p: p['title'])
+            miscs = json.load(fp)
+        miscs = [miscs[id] for id in miscs]
+        miscs.sort(key=lambda p: p['title'])
         template = template_env.get_template('media/miscs.html')
         params['title'] = 'Miscellaneous'
-        output = template.render(projects=projects, **params)
+        output = template.render(projects=miscs, **params)
         add_to_build(output, 'misc.html', params)
 
-        for misc in projects:
+        for misc in miscs:
             template = template_env.get_template('media/misc.html')
             params['title'] = misc['title']
+            misc['pretty_date'] = pretty_format(misc['date'])
             output = template.render(proj=misc, **params)
             add_to_build(output, misc['url_id'] + '.html', params)
+
+        template = template_env.get_template('media/index.html')
+        params['title'] = 'Media'
+        output = template.render(games=games, miscs=miscs, **params)
+        add_to_build(output, 'index.html', params)
 
     additional_templates = ['main.css']
     for additional_template in additional_templates:
@@ -369,6 +398,31 @@ def compile_site(site, params):
         output = template.render(**params)
         add_to_build(output, additional_template, params)
 
+    favicon_cache_dir = os.path.join(params['data_root'], 'cache', 'favicon')
+    if not os.path.isdir(favicon_cache_dir):
+        os.makedirs(favicon_cache_dir)
+    favicon_cache = os.path.join(favicon_cache_dir, site['name'] + '-original.png')
+    if not os.path.isfile(favicon_cache):
+        tint = params['accent_color']
+        if not tint.startswith('#'):
+            raise ValueError('Failed to parse accent color: ' + tint)
+        tint = tint[1:]
+        if len(tint) == 3:
+            tint = ''.join([2*c for c in tint])
+        red = int(tint[0:2], 16)
+        green = int(tint[2:4], 16)
+        blue = int(tint[4:6], 16)
+        favicon_large = PIL.Image.open(os.path.join(params['data_root'], 'templates', 'favicon.png'))
+        favicon_large = PIL.ImageChops.multiply(favicon_large, PIL.Image.new('RGBA', favicon_large.size, (red, green, blue)))
+        favicon_large.save(favicon_cache)
+    else:
+        favicon_large = PIL.Image.open(favicon_cache)
+    for size in [32, 128, 152, 167, 180, 192, 196]:
+        favicon_cache = os.path.join(favicon_cache_dir, site['name'] + '-' + str(size) + '.png')
+        if not os.path.isfile(favicon_cache):
+            favicon = favicon_large.resize((size, size), resample=PIL.Image.LANCZOS)
+            favicon.save(favicon_cache)
+        add_to_build(favicon_cache, os.path.join('assets', 'favicon-' + str(size) + '.png'), params)
 
 def main(argv):
 
@@ -387,9 +441,9 @@ def main(argv):
                     os.remove(item)
     else:
         if 'deploy' in argv:
-            params.update(params['env']['dev'])
-        else:
             params.update(params['env']['prod'])
+        else:
+            params.update(params['env']['dev'])
         del params['env']
 
         for site in params['sites']:
