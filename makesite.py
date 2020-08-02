@@ -499,7 +499,7 @@ def compile_site(site, params):
         output = template.render(games=games, miscs=miscs, **params)
         add_to_build(output, 'index.html', params)
 
-    additional_templates = ['main.css']
+    additional_templates = ['main.css', 'robots.txt']
     for additional_template in additional_templates:
         template = template_env.get_template(additional_template)
         output = template.render(**params)
