@@ -23,15 +23,19 @@
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+
 import copy
 import datetime
 import distutils.dir_util
 import glob
+import htmlmin
 import jinja2
 import json
 import os
 import PIL.Image
 import re
+import rcssmin
+import rjsmin
 import shutil
 import subprocess
 import sys
@@ -140,6 +144,18 @@ def add_to_build(source, target, params):
     if target.startswith('/'):
         target = target[1:]
     target = os.path.join(params['site_dir'], target)
+    if target.endswith('.html'):
+        if os.path.isfile(source):
+            source = fread(source)
+        source = htmlmin.minify(source, remove_empty_space=True, remove_optional_attribute_quotes=False)
+    if target.endswith('.css'):
+        if os.path.isfile(source):
+            source = fread(source)
+        source = rcssmin.cssmin(source)
+    if target.endswith('.js'):
+        if os.path.isfile(source):
+            source = fread(source)
+        source = rjsmin.jsmin(source)
     if not os.path.isfile(os.path.join(build_path, target)):
         target_dir = os.path.dirname(os.path.join(build_path, target))
         if not os.path.isdir(target_dir):
@@ -210,13 +226,16 @@ def cleanup_structure(structure, collate_common=False):
                         if key not in structure[entry]['children']:
                             shared_keys.remove(key)
     if shared_keys is not None and len(shared_keys) > 0:
+        shared_entries = []
         for shared_key in shared_keys:
             entries = []
             for section in structure:
                 if shared_key in structure[section]['children']:
                     entries.append(structure[section]['children'][shared_key])
                     del structure[section]['children'][shared_key]
-        structure[entries[0]['title']] = entries[0]
+            shared_entries.append(entries[0])
+        for shared_entry in shared_entries:
+            structure[shared_entry['title']] = shared_entry
     for entry in structure:
         if structure[entry]['title'].startswith('Student Project: '):
             structure[entry]['title'] = structure[entry]['title'][17:]
@@ -310,11 +329,9 @@ def compile_site(site, params):
                 target_path = item[len(static_path):]
                 add_to_build(item, target_path, params)
 
-    # Load templates.
     templates_path = os.path.join(params['data_root'], 'templates')
     template_env = jinja2.Environment(loader=jinja2.FileSystemLoader(templates_path))
 
-    # Create site pages.
     content_path = os.path.join(params['data_root'], 'content', 'all')
     site_content_path = os.path.join(params['data_root'], 'content', site['name'].lower())
 
@@ -514,6 +531,27 @@ def compile_site(site, params):
             favicon.save(favicon_cache)
         add_to_build(favicon_cache, os.path.join('assets', 'favicon-' + str(size) + '.png'), params)
 
+
+def get_sitemap_entries(structure, base_url):
+    entries = []
+    for id in structure:
+        item = structure[id]
+        path = item['path']
+        if '#' in path:
+            path = path[:path.index('#')]
+        if path == 'imprint':
+            # Try not to have search engines list the imprint
+            continue
+        if ':' not in path:
+            path = base_url + path
+        if path not in entries:
+            entries.append(path)
+        if 'children' in item:
+            for child_entry in get_sitemap_entries(item['children'], base_url):
+                if child_entry not in entries:
+                    entries.append(child_entry)
+    return entries
+
 def main(argv):
 
     params = json.loads(fread('params.json'))
@@ -537,6 +575,9 @@ def main(argv):
             params.update(params['env']['dev'])
         del params['env']
 
+        templates_path = os.path.join(params['data_root'], 'templates')
+        template_env = jinja2.Environment(loader=jinja2.FileSystemLoader(templates_path))
+
         weight = 1
         for site in params['sites']:
             site_params = copy.deepcopy(params)
@@ -550,15 +591,18 @@ def main(argv):
             structure_title = site_params['title']
             if structure_title == 'Me':
                 structure_title = 'About Me'
-            print(structure_title)
             sort_into_structure(structure_title, site_params['current_site'], params['protocol']+site_params['hostname']+site_params['hostname_suffix'], weight, structure)
-            weight += 1
+            sort_into_structure('Sitemap', site_params['current_site'] + '/sitemap', 'sitemap', 999, structure)
             compile_site(site, site_params)
+            template = template_env.get_template('sitemap.xml')
+            entries = get_sitemap_entries({ site['name']: structure[site['name']] }, params['protocol']+site['hostname']+params['hostname_suffix']+'/')
+            entries.sort()
+            output = template.render(entries=entries)
+            add_to_build(output, 'sitemap.xml', site_params)
+            weight += 1
 
         cleanup_structure(structure, collate_common=True)
 
-        templates_path = os.path.join(params['data_root'], 'templates')
-        template_env = jinja2.Environment(loader=jinja2.FileSystemLoader(templates_path))
         for site in params['sites']:
             site_params = copy.deepcopy(params)
             del site_params['target_root']
