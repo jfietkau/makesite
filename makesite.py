@@ -33,6 +33,7 @@ import jinja2
 import json
 import os
 import PIL.Image
+import PIL.ImageChops
 import re
 import rcssmin
 import rjsmin
@@ -295,8 +296,23 @@ def prepare_pub_files(pubs, params, template_env):
             if extension == '.pdf':
                 thumbnail_path = os.path.join(cache_dir, pub['url_id'] + '_thumbnail.png')
                 if not os.path.isfile(thumbnail_path):
+                    thumbnail_interim = thumbnail_path[:-4] + '-precrush.png'
                     subprocess.run(['convert', '-density', '600', pub_file+'[0]',
-                                    '-alpha', 'remove', '-resize', '400', thumbnail_path])
+                                    '-alpha', 'remove', '-resize', '400', thumbnail_interim])
+                    image = PIL.Image.open(thumbnail_interim)
+                    image = image.convert('RGB')
+                    image_grayscale = image.convert('L').convert('RGB')
+                    difference = PIL.ImageChops.difference(image, image_grayscale)
+                    tint_sum = 0
+                    for pixel in difference.getdata():
+                        if pixel != (0, 0, 0):
+                            tint_sum += pixel[0] + pixel[1] + pixel[2]
+                    tinted_quotient = tint_sum / (image.width * image.height)
+                    if tinted_quotient < 0.1:
+                        image = image.convert('L')
+                    image.save(thumbnail_interim)
+                    subprocess.run(['pngcrush', thumbnail_interim, thumbnail_path])
+                    os.remove(thumbnail_interim)
                 add_to_build(thumbnail_path, os.path.join('assets', pub['url_id'] + '_thumbnail.png'), params)
                 pub['has_thumbnail'] = True
                 if not os.path.isfile(os.path.join(cache_dir, pub['url_id'] + '_page1.svg')):
