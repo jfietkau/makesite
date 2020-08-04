@@ -376,6 +376,10 @@ def compile_site(site, params):
         output = pubs_template.render(publications=pubs, **params)
         sort_into_structure(params['title'], params['current_site'] + '/publications', 'publications', 10, params['structure'])
         add_to_build(output, 'publications.html', params)
+        index_template = template_env.get_template('science/index.html')
+        params['title'] = 'Science'
+        index_output = index_template.render(publications=pubs[0:3], **params)
+        add_to_build(index_output, 'index.html', params)
         feed_template = template_env.get_template('science/publications.xml')
         feed_output = feed_template.render(pubs=pubs, **params)
         add_to_build(feed_output, 'publications.xml', params)
