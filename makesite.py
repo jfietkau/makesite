@@ -212,8 +212,6 @@ def sort_into_structure(title, breadcrumb, path, weight, structure):
 
 
 def cleanup_structure(structure, collate_common=False):
-    with open('/home/julian/Arbeitsfläche/strucutre.json', 'w') as fp:
-        json.dump(structure, fp, indent=4)
     shared_keys = None
     for entry in structure:
         if 'children' in structure[entry]:
@@ -298,7 +296,7 @@ def prepare_pub_files(pubs, params, template_env):
                 thumbnail_path = os.path.join(cache_dir, pub['url_id'] + '_thumbnail.png')
                 if not os.path.isfile(thumbnail_path):
                     subprocess.run(['convert', '-density', '600', pub_file+'[0]',
-                                    '-alpha', 'remove', '-resize', '600', thumbnail_path])
+                                    '-alpha', 'remove', '-resize', '400', thumbnail_path])
                 add_to_build(thumbnail_path, os.path.join('assets', pub['url_id'] + '_thumbnail.png'), params)
                 pub['has_thumbnail'] = True
                 if not os.path.isfile(os.path.join(cache_dir, pub['url_id'] + '_page1.svg')):
@@ -383,8 +381,11 @@ def compile_site(site, params):
                 add_to_build(pdf_path, thesis['url_id'] + '.pdf', params)
             thumbnail_path = os.path.join(student_theses_cache_dir, thesis['url_id'] + '_thumbnail.png')
             if not os.path.isfile(thumbnail_path):
+                interim = thumbnail_path[:-4]+'-precrush.png'
                 subprocess.run(['convert', '-density', '600', pdf_path+'[0]',
-                                '-alpha', 'remove', '-resize', '400', thumbnail_path])
+                                '-alpha', 'remove', '-resize', '400', interim])
+                subprocess.run(['pngcrush', interim, thumbnail_path])
+                os.remove(interim)
             add_to_build(thumbnail_path, os.path.join('assets', thesis['url_id'] + '_thumbnail.png'), params)
             thesis['has_thumbnail'] = True
         teaching_template = template_env.get_template('science/teaching.html')
@@ -527,8 +528,11 @@ def compile_site(site, params):
     for size in [32, 128, 152, 167, 180, 192, 196]:
         favicon_cache = os.path.join(favicon_cache_dir, site['name'] + '-' + str(size) + '.png')
         if not os.path.isfile(favicon_cache):
+            interim = favicon_cache[:-4]+'-precrush.png'
             favicon = favicon_large.resize((size, size), resample=PIL.Image.LANCZOS)
-            favicon.save(favicon_cache)
+            favicon.save(favicon_cache[:-4]+'-precrush.png')
+            subprocess.run(['pngcrush', interim, favicon_cache])
+            os.remove(interim)
         add_to_build(favicon_cache, os.path.join('assets', 'favicon-' + str(size) + '.png'), params)
 
 
