@@ -24,6 +24,7 @@
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
+import collections
 import copy
 import datetime
 import distutils.dir_util
@@ -38,6 +39,7 @@ import re
 import rcssmin
 import rjsmin
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -141,6 +143,7 @@ def render(template, **params):
 
 def add_to_build(source, target, params):
     link_if_bigger_than = 4 * 1024 * 1024
+    build_permissions = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH
     build_path = os.path.join(params['data_root'], 'build')
     if target.startswith('/'):
         target = target[1:]
@@ -157,27 +160,30 @@ def add_to_build(source, target, params):
         if os.path.isfile(source):
             source = fread(source)
         source = rjsmin.jsmin(source)
-    if not os.path.isfile(os.path.join(build_path, target)):
-        target_dir = os.path.dirname(os.path.join(build_path, target))
+    target_path = os.path.join(build_path, target)
+    if not os.path.isfile(target_path):
+        target_dir = os.path.dirname(target_path)
         if not os.path.isdir(target_dir):
             os.makedirs(target_dir)
         # check if source is a path or direct file contents
         if not os.path.isfile(source):
             log('Adding {} from inline data ...'.format(target))
-            fwrite(os.path.join(build_path, target), source)
+            fwrite(target_path, source)
         else:
             log('Adding {} from {} ...'.format(target, source))
             if os.path.getsize(source) > link_if_bigger_than:
-                os.symlink(source, os.path.join(build_path, target))
+                os.symlink(source, target_path)
             else:
-                shutil.copy2(source, os.path.join(build_path, target))
+                shutil.copy2(source, target_path)
+        os.chmod(target_path, build_permissions)
     else:
-        target_stat = os.stat(os.path.join(build_path, target))
+        target_stat = os.stat(target_path)
         if not os.path.isfile(source):
-            target_content = fread(os.path.join(build_path, target))
+            target_content = fread(target_path)
             if source != target_content:
                 log('Adding {} from inline data ...'.format(target))
-                fwrite(os.path.join(build_path, target), source)
+                fwrite(target_path, source)
+                os.chmod(target_path, build_permissions)
             else:
                 # log('Skipping {} - existing file is identical'.format(target))
                 pass
@@ -186,9 +192,11 @@ def add_to_build(source, target, params):
             if source_stat.st_mtime != target_stat.st_mtime or source_stat.st_size != target_stat.st_size:
                 log('Adding {} from {} ...'.format(target, source))
                 if os.path.getsize(source) > link_if_bigger_than:
-                    os.symlink(source, os.path.join(build_path, target))
+                    os.symlink(source, target_path)
+                    os.chmod(target_path, build_permissions)
                 else:
-                    shutil.copy2(source, os.path.join(build_path, target))
+                    shutil.copy2(source, target_path)
+                    os.chmod(target_path, build_permissions)
             else:
                 # log('Skipping {} - existing file is identical'.format(target))
                 pass
@@ -284,6 +292,10 @@ def prepare_pub_files(pubs, params, template_env):
     cache_dir = os.path.join(params['data_root'], 'cache', 'publications')
     if not os.path.isdir(cache_dir):
         os.makedirs(cache_dir)
+    bibtex_type_map = {
+        'conference-paper': 'inproceedings',
+        'conference-poster': 'inproceedings'
+    }
     for pub in pubs:
         pub_files = glob.glob(os.path.join(source_dir, str(pub['id'])+'.*'))
         for pub_file in pub_files:
@@ -323,6 +335,75 @@ def prepare_pub_files(pubs, params, template_env):
                     add_to_build(svg, os.path.join('assets', os.path.basename(svg)), params)
                 if len(svg_pages) > 0:
                     pub['content_svg'] = len(svg_pages)
+
+        bibtex_data = collections.OrderedDict()
+        bibtex_data['author'] = ' AND '.join(pub['authors'])
+        bibtex_data['title'] = pub['title']
+        bibtex_data['year'] = pub['year']
+        bibtex_id = pub['authors'][0].split(', ')[0]
+        if len(pub['authors']) > 1:
+            bibtex_id += ''.join(name[0] for name in pub['authors'][1:])
+        bibtex_id += pub['year']
+        bibtex_id = bibtex_id.replace('ä', 'ae').replace('ö', 'oe').replace('ü', 'ue')
+        bibtex_id = bibtex_id.replace('Ä', 'Ae').replace('Ö', 'Oe').replace('Ü', 'Ue')
+        bibtex_id = bibtex_id.replace('ß', 'ss')
+        bibtex_type = None
+        if pub['type'] in bibtex_type_map:
+            bibtex_type = bibtex_type_map[pub['type']]
+        if pub['type'] == 'dissertation-thesis':
+            if pub['thesis-type'] == 'phd':
+                bibtex_type = 'phdthesis'
+                bibtex_data['school'] = pub['thesis-university']
+            elif pub['thesis-type'] == 'msc':
+                bibtex_type = 'mastersthesis'
+                bibtex_data['school'] = pub['thesis-university']
+            elif pub['thesis-type'] == 'bsc':
+                bibtex_type = 'misc'
+                bibtex_data['howpublished'] = 'Bachelor thesis, ' + pub['thesis-university']
+        if 'journal' in pub:
+            bibtex_data['booktitle'] = pub['journal']
+        if 'editors' in pub:
+            bibtex_data['editor'] = ' AND '.join(pub['editors'])
+        if 'publisher' in pub:
+            bibtex_data['publisher'] = pub['publisher']
+        if 'address' in pub:
+            bibtex_data['address'] = pub['address']
+        if 'series' in pub:
+            bibtex_data['series'] = pub['series']
+        if 'volume' in pub:
+            bibtex_data['volume'] = pub['volume']
+        if 'pages' in pub:
+            bibtex_data['pages'] = pub['pages'].replace('-', '--')
+        if 'numpages' in pub:
+            bibtex_data['numpages'] = pub['numpages']
+        if 'location' in pub:
+            bibtex_data['location'] = pub['location']
+        if 'doi' in pub:
+            bibtex_data['doi'] = pub['doi']
+        if 'isbn' in pub:
+            bibtex_data['isbn'] = pub['isbn']
+        elif 'parent-isbn' in pub:
+            bibtex_data['isbn'] = pub['parent-isbn']
+        if 'keywords' in pub:
+            bibtex_data['keywords'] = ', '.join(pub['keywords'])
+        if 'canonical_url' in pub:
+            bibtex_data['url'] = pub['canonical_url']
+        else:
+            bibtex_data['url'] = params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/' + pub['url_id']
+        if bibtex_type is None:
+            print('No type mapping found:', pub['type'])
+        bibtex = '@' + bibtex_type + '{' + bibtex_id + ',\n'
+        for part in bibtex_data:
+            value = bibtex_data[part]
+            value = value.replace('ä', '{\\"{a}}').replace('ö', '{\\"{o}}').replace('ü', '{\\"{u}}')
+            value = value.replace('Ä', '{\\"{A}}').replace('Ö', '{\\"{O}}').replace('Ü', '{\\"{U}}')
+            value = value.replace('ß', '{\\ss}')
+            value = value.replace('–', '--')
+            bibtex += '  ' + part + ' = {' + value + '},\n'
+        bibtex = bibtex[:-2] + '\n}'
+        add_to_build(bibtex, pub['url_id']+'.bib', params)
+        pub['has_cite_bibtex'] = True
+
         pub_template = template_env.get_template('science/publication-page.html')
         params['title'] = pub['title']
         output = pub_template.render(publication=pub, css='publication.css', **params)
@@ -470,7 +551,12 @@ def compile_site(site, params):
             template = template_env.get_template('media/game.html')
             params['title'] = proj['title']
             proj['pretty_date'] = pretty_format(proj['date'])
-            output = template.render(proj=proj, **params)
+            css = ''
+            if 'player' in proj:
+                if proj['player']['type'] == 'raw':
+                    proj['player']['content'] = fread(os.path.join(params['data_root'], 'content', 'media', proj['player']['file']))
+                css = 'player.css'
+            output = template.render(proj=proj, css=css, **params)
             sort_into_structure(params['title'], params['current_site'] + '/games/' + proj['url_id'], proj['url_id'], weight, params['structure'])
             weight += 1
             add_to_build(output, proj['url_id'] + '.html', params)
@@ -641,7 +727,7 @@ def main(argv):
             output = template.render(**site_params)
             add_to_build(output, 'sitemap.html', site_params)
 
-        cmd = ['rsync', '--recursive', '--copy-links', '--safe-links', '--times', '--delete', build_path + '/', params['target_root'] + '/']
+        cmd = ['rsync', '--progress', '--recursive', '--copy-links', '--safe-links', '--times', '--perms', '--delete', build_path + '/', params['target_root'] + '/']
         subprocess.run(cmd)
 
 # Test parameter to be set temporarily by unit tests.
