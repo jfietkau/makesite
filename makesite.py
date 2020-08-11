@@ -298,6 +298,7 @@ def prepare_pub_files(pubs, params, template_env):
     }
     for pub in pubs:
         pub_files = glob.glob(os.path.join(source_dir, str(pub['id'])+'.*'))
+        pub_files.sort()
         for pub_file in pub_files:
             extension = os.path.splitext(pub_file)[1]
             if extension == '.html':
@@ -327,14 +328,15 @@ def prepare_pub_files(pubs, params, template_env):
                     os.remove(thumbnail_interim)
                 add_to_build(thumbnail_path, os.path.join('assets', pub['url_id'] + '_thumbnail.png'), params)
                 pub['has_thumbnail'] = True
-                if not os.path.isfile(os.path.join(cache_dir, pub['url_id'] + '_page1.svg')):
-                    svg_path = os.path.join(cache_dir, pub['url_id'] + '_page%d.svg')
-                    subprocess.run(['pdf2svg', pub_file, svg_path, 'all'])
-                svg_pages = glob.glob(os.path.join(cache_dir, pub['url_id'] + '_page*.svg'))
-                for svg in svg_pages:
-                    add_to_build(svg, os.path.join('assets', os.path.basename(svg)), params)
-                if len(svg_pages) > 0:
-                    pub['content_svg'] = len(svg_pages)
+                if 'content_html' not in pub:
+                    if not os.path.isfile(os.path.join(cache_dir, pub['url_id'] + '_page1.svg')):
+                        svg_path = os.path.join(cache_dir, pub['url_id'] + '_page%d.svg')
+                        subprocess.run(['pdf2svg', pub_file, svg_path, 'all'])
+                    svg_pages = glob.glob(os.path.join(cache_dir, pub['url_id'] + '_page*.svg'))
+                    for svg in svg_pages:
+                        add_to_build(svg, os.path.join('assets', os.path.basename(svg)), params)
+                    if len(svg_pages) > 0:
+                        pub['content_svg'] = len(svg_pages)
 
         bibtex_data = collections.OrderedDict()
         bibtex_data['author'] = ' AND '.join(pub['authors'])
@@ -431,10 +433,17 @@ def compile_site(site, params):
     site_content_path = os.path.join(params['data_root'], 'content', site['name'].lower())
 
     page_template = template_env.get_template('page.html')
-    page_list = glob.glob(os.path.join(site_content_path, '*.html'))
+    page_list = []
+    for candidate in glob.glob(os.path.join(site_content_path, '*.html')):
+        if candidate.endswith('.include.html'):
+            continue
+        page_list.append(candidate)
     for candidate in glob.glob(os.path.join(content_path, '*.html')):
-        if candidate.replace(content_path, site_content_path) not in page_list:
-            page_list.append(candidate)
+        if candidate.endswith('.include.html'):
+            continue
+        if candidate.replace(content_path, site_content_path) in page_list:
+            continue
+        page_list.append(candidate)
     make_pages(page_list, '{{ slug }}.html', page_template, **params)
 
     if site['name'] == 'Science':
@@ -454,7 +463,8 @@ def compile_site(site, params):
         prepare_pub_files(pubs, params, template_env)
         pubs_template = template_env.get_template('science/publications.html')
         params['title'] = 'Publications'
-        output = pubs_template.render(publications=pubs, **params)
+        extra_head = ['<link rel="alternate" type="application/rss+xml" href="/publications.xml">']
+        output = pubs_template.render(publications=pubs, extra_head=extra_head, **params)
         sort_into_structure(params['title'], params['current_site'] + '/publications', 'publications', 10, params['structure'])
         add_to_build(output, 'publications.html', params)
         index_template = template_env.get_template('science/index.html')
@@ -529,7 +539,10 @@ def compile_site(site, params):
         for proj in projects:
             template = template_env.get_template('software/project.html')
             params['title'] = proj['title']
-            output = template.render(proj=proj, **params)
+            css = ''
+            if proj['url_id'] == 'readerbar':
+                css = 'readerbar.css'
+            output = template.render(proj=proj, css=css, **params)
             sort_into_structure(params['title'], params['current_site'] + '/' + category_data[proj['category']]['url_segment'] + '/' + proj['url_id'], proj['url_id'], weight, params['structure'])
             weight += 1
             add_to_build(output, proj['url_id'] + '.html', params)
