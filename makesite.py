@@ -69,7 +69,7 @@ def log(msg, *args):
 
 def read_headers(text):
     """Parse headers in text and yield (key, value, end-index) tuples."""
-    for match in re.finditer(r'\s*<!--\s*(.+?)\s*:\s*(.+?)\s*-->\s*|.+', text):
+    for match in re.finditer(r'\s*<!--\s*(.+?)\s*:\s+(.+?)\s*-->\s*|.+', text):
         if not match.group(1):
             break
         yield match.group(1), match.group(2), match.end()
@@ -262,12 +262,30 @@ def make_pages(page_list, destination, template, **params):
             continue
 
         content = read_content(src_path)
+        for prop in list(content.keys()):
+            if prop.startswith('og:'):
+                name = prop[3:]
+                value = content[prop]
+                if 'open_graph' not in content:
+                    content['open_graph'] = {}
+                content['open_graph'][name] = value
 
         page_params = dict(params, **content)
 
         items.append(content)
 
         dst_path = render(destination, **page_params)
+        
+        page_params['self_path'] = '/' + dst_path
+        if page_params['self_path'].endswith('.html'):
+            page_params['self_path'] = page_params['self_path'][:-5]
+        if page_params['self_path'].endswith('index'):
+            page_params['self_path'] = page_params['self_path'][:-5]
+        if page_params['self_path'].endswith('/'):
+            page_params['self_path'] = page_params['self_path'][:-1]
+        if os.path.basename(src_path)[0] == '_':
+            del page_params['self_path']
+        
         output = template.render(**page_params)
 
         if os.path.basename(src_path)[0] != '_' and os.path.basename(src_path) != 'index.html':
@@ -408,7 +426,22 @@ def prepare_pub_files(pubs, params, template_env):
 
         pub_template = template_env.get_template('science/publication-page.html')
         params['title'] = pub['title']
-        output = pub_template.render(publication=pub, css='publication.css', **params)
+        params['self_path'] = '/' + pub['url_id']
+        open_graph = {
+            'type': 'article',
+            'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + pub['url_id'] + '_thumbnail.png',
+            'image:alt': 'First page of the print version of this article'
+        }
+        if 'abstract' in pub:
+            sentences = pub['abstract'].split('. ')
+            description = ''
+            for sentence in sentences:
+                description += sentence + '. '
+                if len(description) > 150:
+                    description = description[:-1]
+                    break
+            open_graph['description'] = description
+        output = pub_template.render(publication=pub, open_graph=open_graph, css='publication.css', **params)
         weight = -1 * int(pub['year']+pub['month']+pub['day'])
         sort_into_structure(pub['title'], params['current_site'] + '/publications/' + pub['url_id'], pub['url_id'], weight, params['structure'])
         add_to_build(output, pub['url_id']+'.html', params)
@@ -460,16 +493,25 @@ def compile_site(site, params):
             if pub_id in metadata:
                 pub.update(metadata[pub_id])
             pub['rfc_2822_date'] = rfc_2822_format(datetime.datetime(int(pub['year']), int(pub['month']), int(pub['day']), 0, 0, 0))
+            print(pub)
         prepare_pub_files(pubs, params, template_env)
         pubs_template = template_env.get_template('science/publications.html')
         params['title'] = 'Publications'
+        params['self_path'] = '/publications'
+        open_graph = {
+            'description': 'This is an up-to-date list of all my academic publications. Every article is available to download for free.'
+        }
         extra_head = ['<link rel="alternate" type="application/rss+xml" href="/publications.xml">']
-        output = pubs_template.render(publications=pubs, extra_head=extra_head, **params)
+        output = pubs_template.render(publications=pubs, open_graph=open_graph, extra_head=extra_head, **params)
         sort_into_structure(params['title'], params['current_site'] + '/publications', 'publications', 10, params['structure'])
         add_to_build(output, 'publications.html', params)
         index_template = template_env.get_template('science/index.html')
         params['title'] = 'Science'
-        index_output = index_template.render(publications=pubs[0:3], **params)
+        params['self_path'] = ''
+        open_graph = {
+            'description': 'In this part of the website you can find information about my research and teaching activities. You can take a look at my academic publications, student projects and theses I have supervised, as well as my academic community involvement.'
+        }
+        index_output = index_template.render(publications=pubs[0:3], open_graph=open_graph, **params)
         add_to_build(index_output, 'index.html', params)
         feed_template = template_env.get_template('science/publications.xml')
         feed_output = feed_template.render(pubs=pubs, **params)
@@ -501,7 +543,11 @@ def compile_site(site, params):
             thesis['has_thumbnail'] = True
         teaching_template = template_env.get_template('science/teaching.html')
         params['title'] = 'Teaching'
-        output = teaching_template.render(student_theses=student_theses, **params)
+        params['self_path'] = '/teaching'
+        open_graph = {
+            'description': 'This is an overview of some of my current and past teaching activity. See below for some interesting student projects taught or assisted by me, take a look at theses I supervised, get an overview of my teaching qualifications or refer to a complete list of courses I have taught.'
+        }
+        output = teaching_template.render(student_theses=student_theses, open_graph=open_graph, **params)
         sort_into_structure(params['title'], params['current_site'] + '/teaching', 'teaching', 20, params['structure'])
         sort_into_structure('Student Projects', params['current_site'] + '/teaching/student_projects', 'teaching#student_projects', 20, params['structure'])
         add_to_build(output, 'teaching.html', params)
@@ -512,7 +558,11 @@ def compile_site(site, params):
         projects = [projects[id] for id in projects]
         projects.sort(key=lambda p: p['title'].lower())
         template = template_env.get_template('software/index.html')
-        output = template.render(projects=projects, **params)
+        params['self_path'] = ''
+        open_graph = {
+            'description': 'This is where you can find resources about my various software projects. These are exclusively projects I consider “mine,” so anything I have worked on as part of a bigger team or have only made minor contributions to will not be listed here.'
+        }
+        output = template.render(projects=projects, open_graph=open_graph, **params)
         add_to_build(output, 'index.html', params)
 
         template = template_env.get_template('software/projects.html')
@@ -520,18 +570,24 @@ def compile_site(site, params):
             'major': {
                 'title': 'Major Projects',
                 'url_segment': 'major_projects',
+                'description': 'These are some software development projects of mine that are on the larger end of the scope or more generally usable than my more specific tools.',
                 'weight': 1
             },
             'minor': {
                 'title': 'Smaller Tools',
                 'url_segment': 'smaller_tools',
+                'description': 'Over the course of a programmer\'s life, many small or tiny technical solutions for everyday issues get created.',
                 'weight': 2
             }
         }
         for category in ['major', 'minor']:
             params['title'] = category_data[category]['title']
-            output = template.render(projects=projects, project_category=category, **params)
             url_segment = category_data[category]['url_segment']
+            params['self_path'] = '/' + url_segment
+            open_graph = {
+                'description': category_data[category]['description']
+            }
+            output = template.render(projects=projects, project_category=category, open_graph=open_graph, **params)
             sort_into_structure(params['title'], params['current_site'] + '/' + url_segment, url_segment, category_data[category]['weight'], params['structure'])
             add_to_build(output, url_segment + '.html', params)
 
@@ -539,10 +595,16 @@ def compile_site(site, params):
         for proj in projects:
             template = template_env.get_template('software/project.html')
             params['title'] = proj['title']
+            params['self_path'] = '/' + proj['url_id']
             css = ''
             if proj['url_id'] == 'readerbar':
                 css = 'readerbar.css'
-            output = template.render(proj=proj, css=css, **params)
+            open_graph = {
+                'description': proj['summary'],
+                'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + proj['logo'],
+                'image:alt': proj['title'] + ' logo'
+            }
+            output = template.render(proj=proj, css=css, open_graph=open_graph, **params)
             sort_into_structure(params['title'], params['current_site'] + '/' + category_data[proj['category']]['url_segment'] + '/' + proj['url_id'], proj['url_id'], weight, params['structure'])
             weight += 1
             add_to_build(output, proj['url_id'] + '.html', params)
@@ -555,7 +617,11 @@ def compile_site(site, params):
         games.reverse()
         template = template_env.get_template('media/games.html')
         params['title'] = 'Games'
-        output = template.render(projects=games, **params)
+        params['self_path'] = '/games'
+        open_graph = {
+            'description': 'I am happy to have been partially or wholly responsible for several completed game development projects that have brought people fun and laughter. On this page you can find a list of the finished ones in order of recency.'
+        }
+        output = template.render(projects=games, open_graph=open_graph, **params)
         sort_into_structure(params['title'], params['current_site'] + '/games', 'games', 1, params['structure'])
         add_to_build(output, 'games.html', params)
 
@@ -563,13 +629,19 @@ def compile_site(site, params):
         for proj in games:
             template = template_env.get_template('media/game.html')
             params['title'] = proj['title']
+            params['self_path'] = '/' + proj['url_id']
             proj['pretty_date'] = pretty_format(proj['date'])
             css = ''
             if 'player' in proj:
                 if proj['player']['type'] == 'raw':
                     proj['player']['content'] = fread(os.path.join(params['data_root'], 'content', 'media', proj['player']['file']))
                 css = 'player.css'
-            output = template.render(proj=proj, css=css, **params)
+            open_graph = {
+                'description': proj['summary'],
+                'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + proj['logo'],
+                'image:alt': proj['title'] + ' logo'
+            }
+            output = template.render(proj=proj, css=css, open_graph=open_graph, **params)
             sort_into_structure(params['title'], params['current_site'] + '/games/' + proj['url_id'], proj['url_id'], weight, params['structure'])
             weight += 1
             add_to_build(output, proj['url_id'] + '.html', params)
@@ -580,7 +652,13 @@ def compile_site(site, params):
         videos.sort(key=lambda v: v['date']+v['title'])
         template = template_env.get_template('media/videos.html')
         params['title'] = 'Videos: Working with LaTeX'
-        output = template.render(videos=videos, **params)
+        params['self_path'] = '/videos'
+        open_graph = {
+            'description': 'In 2011 and 2012 I created a series of video tutorials about using LaTeX in an academic environment, especially as a student. They were accompanied by a seminar where students were able to attend and ask questions.',
+            'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/arbeiten_mit_latex_ankuendigung_poster.png',
+            'image:alt': 'Working with LaTeX logo'
+        }
+        output = template.render(videos=videos, open_graph=open_graph, **params)
         sort_into_structure(params['title'], params['current_site'] + '/videos', 'videos', 2, params['structure'])
         add_to_build(output, 'videos.html', params)
 
@@ -588,8 +666,15 @@ def compile_site(site, params):
         for video in videos:
             template = template_env.get_template('media/video.html')
             params['title'] = video['title']
+            params['self_path'] = '/' + video['url_id']
             video['pretty_date'] = pretty_format(video['date'])
-            output = template.render(video=video, **params)
+            open_graph = {
+                'description': 'Arbeiten mit LaTeX – ' + video['title'],
+                'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + video['url_id'] + '_poster.png',
+                'image:alt': video['title'] + ' (starting slide)',
+                'type': 'video.episode'
+            }
+            output = template.render(video=video, open_graph=open_graph, **params)
             sort_into_structure(params['title'], params['current_site'] + '/videos/' + video['url_id'], video['url_id'], weight, params['structure'])
             weight += 1
             add_to_build(output, video['url_id'] + '.html', params)
@@ -600,7 +685,11 @@ def compile_site(site, params):
         miscs.sort(key=lambda p: p['title'])
         template = template_env.get_template('media/miscs.html')
         params['title'] = 'Miscellaneous'
-        output = template.render(projects=miscs, **params)
+        params['self_path'] = '/misc'
+        open_graph = {
+            'description': 'From time to time I create something that doesn\'t fit neatly into any of the other categories. This is where you can find the more irregular results of my creative moments.'
+        }
+        output = template.render(projects=miscs, open_graph=open_graph, **params)
         sort_into_structure(params['title'], params['current_site'] + '/misc', 'misc', 3, params['structure'])
         add_to_build(output, 'misc.html', params)
 
@@ -608,15 +697,25 @@ def compile_site(site, params):
         for misc in miscs:
             template = template_env.get_template('media/misc.html')
             params['title'] = misc['title']
+            params['self_path'] = '/' + misc['url_id']
             misc['pretty_date'] = pretty_format(misc['date'])
-            output = template.render(proj=misc, **params)
+            open_graph = {
+                'description': misc['summary'],
+                'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + misc['logo'],
+                'image:alt': misc['title'] + ' logo'
+            }
+            output = template.render(proj=misc, open_graph=open_graph, **params)
             sort_into_structure(params['title'], params['current_site'] + '/misc/' + misc['url_id'], misc['url_id'], weight, params['structure'])
             weight += 1
             add_to_build(output, misc['url_id'] + '.html', params)
 
         template = template_env.get_template('media/index.html')
         params['title'] = 'Media'
-        output = template.render(games=games, miscs=miscs, **params)
+        params['self_path'] = ''
+        open_graph = {
+            'description': 'This part of the website contains some of my non-scientific creative output, which is mostly hobby projects. These lists are not exhaustive and for each category there are things I haven\'t published, but I tried to add everything that could potentially be interesting to look at or read about.'
+        }
+        output = template.render(games=games, miscs=miscs, open_graph=open_graph, **params)
         add_to_build(output, 'index.html', params)
 
     additional_templates = ['main.css', 'robots.txt']
@@ -644,7 +743,7 @@ def compile_site(site, params):
         favicon_large.save(favicon_cache)
     else:
         favicon_large = PIL.Image.open(favicon_cache)
-    for size in [32, 128, 152, 167, 180, 192, 196]:
+    for size in [32, 128, 152, 167, 180, 192, 196, 600]:
         favicon_cache = os.path.join(favicon_cache_dir, site['name'] + '-' + str(size) + '.png')
         if not os.path.isfile(favicon_cache):
             interim = favicon_cache[:-4]+'-precrush.png'
@@ -737,7 +836,11 @@ def main(argv):
             site_params['accent_color'] = site['accent_color']
             template = template_env.get_template('sitemap.html')
             params['title'] = 'Sitemap'
-            output = template.render(**site_params)
+            params['self_path'] = '/sitemap'
+            open_graph = {
+                'description': 'This is a human-readable complete sitemap for this website.'
+            }
+            output = template.render(open_graph=open_graph, **site_params)
             add_to_build(output, 'sitemap.html', site_params)
 
         cmd = ['rsync', '--progress', '--recursive', '--copy-links', '--safe-links', '--times', '--perms', '--delete', build_path + '/', params['target_root'] + '/']
