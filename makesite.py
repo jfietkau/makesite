@@ -493,7 +493,6 @@ def compile_site(site, params):
             if pub_id in metadata:
                 pub.update(metadata[pub_id])
             pub['rfc_2822_date'] = rfc_2822_format(datetime.datetime(int(pub['year']), int(pub['month']), int(pub['day']), 0, 0, 0))
-            print(pub)
         prepare_pub_files(pubs, params, template_env)
         pubs_template = template_env.get_template('science/publications.html')
         params['title'] = 'Publications'
