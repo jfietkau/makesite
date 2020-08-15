@@ -285,8 +285,12 @@ def make_pages(page_list, destination, template, **params):
             page_params['self_path'] = page_params['self_path'][:-1]
         if os.path.basename(src_path)[0] == '_':
             del page_params['self_path']
+
+        extra_head = []
+        if dst_path == 'imprint.html':
+            extra_head = ['<meta name="robots" content="noindex, follow">']
         
-        output = template.render(**page_params)
+        output = template.render(extra_head=extra_head, **page_params)
 
         if os.path.basename(src_path)[0] != '_' and os.path.basename(src_path) != 'index.html':
             if 'breadcrumb' in page_params:
@@ -315,15 +319,18 @@ def prepare_pub_files(pubs, params, template_env):
         'conference-poster': 'inproceedings'
     }
     for pub in pubs:
+        if 'url_id' not in pub:
+            continue
         pub_files = glob.glob(os.path.join(source_dir, str(pub['id'])+'.*'))
         pub_files.sort()
         for pub_file in pub_files:
             extension = os.path.splitext(pub_file)[1]
-            if extension == '.html':
+            if extension == '.html' and 'not_published_yet' not in pub:
                pub['content_html'] = fread(pub_file)
                continue
             add_to_build(pub_file, pub['url_id'] + extension, params)
-            pub['has_download_'+extension[1:]] = True
+            if 'not_published_yet' not in pub:
+                pub['has_download_'+extension[1:]] = True
             if extension == '.pdf':
                 thumbnail_path = os.path.join(cache_dir, pub['url_id'] + '_thumbnail.png')
                 if not os.path.isfile(thumbnail_path):
@@ -346,7 +353,7 @@ def prepare_pub_files(pubs, params, template_env):
                     os.remove(thumbnail_interim)
                 add_to_build(thumbnail_path, os.path.join('assets', pub['url_id'] + '_thumbnail.png'), params)
                 pub['has_thumbnail'] = True
-                if 'content_html' not in pub:
+                if 'content_html' not in pub and 'not_published_yet' not in pub:
                     if not os.path.isfile(os.path.join(cache_dir, pub['url_id'] + '_page1.svg')):
                         svg_path = os.path.join(cache_dir, pub['url_id'] + '_page%d.svg')
                         subprocess.run(['pdf2svg', pub_file, svg_path, 'all'])
@@ -357,12 +364,15 @@ def prepare_pub_files(pubs, params, template_env):
                         pub['content_svg'] = len(svg_pages)
 
         bibtex_data = collections.OrderedDict()
-        bibtex_data['author'] = ' AND '.join(pub['authors'])
+        if 'authors' in pub:
+            bibtex_data['author'] = ' AND '.join(pub['authors'])
+            bibtex_id = pub['authors'][0].split(', ')[0]
+            if len(pub['authors']) > 1:
+                bibtex_id += ''.join(name[0] for name in pub['authors'][1:])
+        else:
+            bibtex_id = 'Anonymous'
         bibtex_data['title'] = pub['title']
         bibtex_data['year'] = pub['year']
-        bibtex_id = pub['authors'][0].split(', ')[0]
-        if len(pub['authors']) > 1:
-            bibtex_id += ''.join(name[0] for name in pub['authors'][1:])
         bibtex_id += pub['year']
         bibtex_id = bibtex_id.replace('ä', 'ae').replace('ö', 'oe').replace('ü', 'ue')
         bibtex_id = bibtex_id.replace('Ä', 'Ae').replace('Ö', 'Oe').replace('Ü', 'Ue')
@@ -492,7 +502,12 @@ def compile_site(site, params):
             pub_id = str(pub['id'])
             if pub_id in metadata:
                 pub.update(metadata[pub_id])
+            else:
+                print('No additional metadata four publication with ID:', pub_id)
             pub['rfc_2822_date'] = rfc_2822_format(datetime.datetime(int(pub['year']), int(pub['month']), int(pub['day']), 0, 0, 0))
+            publish_date = datetime.datetime.strptime(pub['year'] + '-' + pub['month'] + '-' + pub['day'], '%Y-%m-%d')
+            if publish_date > datetime.datetime.utcnow():
+                pub['not_published_yet'] = True
         prepare_pub_files(pubs, params, template_env)
         pubs_template = template_env.get_template('science/publications.html')
         params['title'] = 'Publications'
