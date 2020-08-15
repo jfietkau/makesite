@@ -144,7 +144,7 @@ def render(template, **params):
 def add_to_build(source, target, params):
     link_if_bigger_than = 4 * 1024 * 1024
     build_permissions = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH
-    build_path = os.path.join(params['data_root'], 'build')
+    build_path = os.path.join(params['data_root'], 'build', params['build_target'])
     if target.startswith('/'):
         target = target[1:]
     target = os.path.join(params['site_dir'], target)
@@ -806,9 +806,11 @@ def main(argv):
                     os.remove(item)
     else:
         if 'deploy' in argv:
-            params.update(params['env']['prod'])
+            build_target = 'prod'
         else:
-            params.update(params['env']['dev'])
+            build_target = 'dev'
+        params['build_target'] = build_target
+        params.update(params['env'][build_target])
         del params['env']
 
         templates_path = os.path.join(params['data_root'], 'templates')
@@ -857,7 +859,7 @@ def main(argv):
             output = template.render(open_graph=open_graph, **site_params)
             add_to_build(output, 'sitemap.html', site_params)
 
-        cmd = ['rsync', '--progress', '--recursive', '--copy-links', '--safe-links', '--times', '--perms', '--delete', build_path + '/', params['target_root'] + '/']
+        cmd = ['rsync', '--progress', '--recursive', '--copy-links', '--safe-links', '--times', '--perms', '--delete', os.path.join(build_path, params['build_target']) + '/', params['target_root'] + '/']
         subprocess.run(cmd)
 
 # Test parameter to be set temporarily by unit tests.
