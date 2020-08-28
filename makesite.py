@@ -325,7 +325,7 @@ def prepare_pub_files(pubs, params, template_env):
         pub_files.sort()
         for pub_file in pub_files:
             extension = os.path.splitext(pub_file)[1]
-            if extension == '.html' and 'not_published_yet' not in pub:
+            if extension == '.html' and ('not_published_yet' not in pub or params['build_target'] == 'dev'):
                pub['content_html'] = fread(pub_file)
                continue
             add_to_build(pub_file, pub['url_id'] + extension, params)
@@ -757,6 +757,12 @@ def compile_site(site, params):
         favicon_large.save(favicon_cache)
     else:
         favicon_large = PIL.Image.open(favicon_cache)
+    favicon_ico_cache = os.path.join(favicon_cache_dir, site['name'] + '.ico')
+    if not os.path.isfile(favicon_ico_cache):
+        interim = favicon_cache[:-4]+'-precrush.png'
+        favicon = favicon_large.resize((32, 32), resample=PIL.Image.LANCZOS)
+        favicon.save(favicon_ico_cache, sizes=[(16, 16), (24, 24), (32, 32)])
+    add_to_build(favicon_ico_cache, 'favicon.ico', params)
     for size in [32, 128, 152, 167, 180, 192, 196, 600]:
         favicon_cache = os.path.join(favicon_cache_dir, site['name'] + '-' + str(size) + '.png')
         if not os.path.isfile(favicon_cache):
