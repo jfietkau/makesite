@@ -351,6 +351,10 @@ def prepare_pub_files(pubs, params, template_env):
                     image.save(thumbnail_interim)
                     subprocess.run(['pngcrush', thumbnail_interim, thumbnail_path])
                     os.remove(thumbnail_interim)
+                    pub['thumbnail_size'] = list(image.size)
+                else:
+                    image = PIL.Image.open(thumbnail_path)
+                    pub['thumbnail_size'] = list(image.size)
                 add_to_build(thumbnail_path, os.path.join('assets', pub['url_id'] + '_thumbnail.png'), params)
                 pub['has_thumbnail'] = True
                 if 'content_html' not in pub and 'not_published_yet' not in pub:
