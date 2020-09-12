@@ -332,30 +332,41 @@ def prepare_pub_files(pubs, params, template_env):
             if 'not_published_yet' not in pub:
                 pub['has_download_'+extension[1:]] = True
             if extension == '.pdf':
-                thumbnail_path = os.path.join(cache_dir, pub['url_id'] + '_thumbnail.png')
-                if not os.path.isfile(thumbnail_path):
-                    thumbnail_interim = thumbnail_path[:-4] + '-precrush.png'
-                    subprocess.run(['convert', '-density', '600', pub_file+'[0]',
-                                    '-alpha', 'remove', '-resize', '400', thumbnail_interim])
-                    image = PIL.Image.open(thumbnail_interim)
-                    image = image.convert('RGB')
-                    image_grayscale = image.convert('L').convert('RGB')
-                    difference = PIL.ImageChops.difference(image, image_grayscale)
-                    tint_sum = 0
-                    for pixel in difference.getdata():
-                        if pixel != (0, 0, 0):
-                            tint_sum += pixel[0] + pixel[1] + pixel[2]
-                    tinted_quotient = tint_sum / (image.width * image.height)
-                    if tinted_quotient < 0.1:
-                        image = image.convert('L')
-                    image.save(thumbnail_interim)
-                    subprocess.run(['pngcrush', thumbnail_interim, thumbnail_path])
-                    os.remove(thumbnail_interim)
+                thumbnail_base_size = 400
+                for size_factor in [1, 2, 3]:
+                    thumbnail_filename = pub['url_id'] + '_thumbnail.'
+                    if size_factor != 1:
+                        thumbnail_filename = thumbnail_filename[:-1] + '-' + str(size_factor) + 'x.'
+                    thumbnail_path = os.path.join(cache_dir, thumbnail_filename)
+                    if not os.path.isfile(thumbnail_path + 'png'):
+                        thumbnail_interim = thumbnail_path[:-1] + '-precrush.png'
+                        subprocess.run(['convert', '-density', '600', pub_file+'[0]',
+                                        '-alpha', 'remove', '-resize', str(thumbnail_base_size * size_factor), thumbnail_interim])
+                        image = PIL.Image.open(thumbnail_interim)
+                        image = image.convert('RGB')
+                        image_grayscale = image.convert('L').convert('RGB')
+                        difference = PIL.ImageChops.difference(image, image_grayscale)
+                        tint_sum = 0
+                        for pixel in difference.getdata():
+                            if pixel != (0, 0, 0):
+                                tint_sum += pixel[0] + pixel[1] + pixel[2]
+                        tinted_quotient = tint_sum / (image.width * image.height)
+                        if tinted_quotient < 0.1:
+                            image = image.convert('L')
+                        image.save(thumbnail_interim)
+                        subprocess.run(['pngcrush', thumbnail_interim, thumbnail_path + 'png'])
+                        os.remove(thumbnail_interim)
+                        pub['thumbnail_size'] = list(image.size)
+                    add_to_build(thumbnail_path + 'png', os.path.join('assets', thumbnail_filename + 'png'), params)
+                    if not os.path.isfile(thumbnail_path + 'webp'):
+                        subprocess.run(['cwebp', '-preset', 'text', '-q', '35', '-m', '6', '-noalpha', thumbnail_path + 'png', '-o', thumbnail_path + 'webp'])
+                    add_to_build(thumbnail_path + 'webp', os.path.join('assets', thumbnail_filename + 'webp'), params)
+                    if not os.path.isfile(thumbnail_path + 'avif'):
+                        subprocess.run(['cavif', '--quality', '35', thumbnail_path + 'png', '-o', thumbnail_path + 'avif'])
+                    add_to_build(thumbnail_path + 'avif', os.path.join('assets', thumbnail_filename + 'avif'), params)
+                if 'thumbnail_size' not in pub:
+                    image = PIL.Image.open(thumbnail_path + 'png')
                     pub['thumbnail_size'] = list(image.size)
-                else:
-                    image = PIL.Image.open(thumbnail_path)
-                    pub['thumbnail_size'] = list(image.size)
-                add_to_build(thumbnail_path, os.path.join('assets', pub['url_id'] + '_thumbnail.png'), params)
                 pub['has_thumbnail'] = True
                 if 'content_html' not in pub and 'not_published_yet' not in pub:
                     if not os.path.isfile(os.path.join(cache_dir, pub['url_id'] + '_page1.svg')):
@@ -443,7 +454,7 @@ def prepare_pub_files(pubs, params, template_env):
         params['self_path'] = '/' + pub['url_id']
         open_graph = {
             'type': 'article',
-            'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + pub['url_id'] + '_thumbnail.png',
+            'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + pub['url_id'] + '_thumbnail-2x.png',
             'image:alt': 'First page of the print version of this article'
         }
         if 'abstract' in pub:
