@@ -174,7 +174,11 @@ def add_to_build(source, target, params):
             if os.path.getsize(source) > link_if_bigger_than:
                 os.symlink(source, target_path)
             else:
-                shutil.copy2(source, target_path)
+                if target_path.endswith('.svg'):
+                    subprocess.run(['svgo', source, '-o', target_path])
+                    shutil.copystat(source, target_path)
+                else:
+                    shutil.copy2(source, target_path)
         os.chmod(target_path, build_permissions)
     else:
         target_stat = os.stat(target_path)
@@ -189,13 +193,17 @@ def add_to_build(source, target, params):
                 pass
         else:
             source_stat = os.stat(source)
-            if source_stat.st_mtime != target_stat.st_mtime or source_stat.st_size != target_stat.st_size:
+            if source_stat.st_mtime != target_stat.st_mtime or (source_stat.st_size != target_stat.st_size and not source.endswith('.svg')):
                 log('Adding {} from {} ...'.format(target, source))
                 if os.path.getsize(source) > link_if_bigger_than:
                     os.symlink(source, target_path)
                     os.chmod(target_path, build_permissions)
                 else:
-                    shutil.copy2(source, target_path)
+                    if target_path.endswith('.svg'):
+                        subprocess.run(['svgo', source, '-o', target_path])
+                        shutil.copystat(source, target_path)
+                    else:
+                        shutil.copy2(source, target_path)
                     os.chmod(target_path, build_permissions)
             else:
                 # log('Skipping {} - existing file is identical'.format(target))
