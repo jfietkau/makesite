@@ -561,14 +561,41 @@ def compile_site(site, params):
                 continue
             if thesis['enable_download']:
                 add_to_build(pdf_path, thesis['url_id'] + '.pdf', params)
-            thumbnail_path = os.path.join(student_theses_cache_dir, thesis['url_id'] + '_thumbnail.png')
-            if not os.path.isfile(thumbnail_path):
-                interim = thumbnail_path[:-4]+'-precrush.png'
-                subprocess.run(['convert', '-density', '600', pdf_path+'[0]',
-                                '-alpha', 'remove', '-resize', '400', interim])
-                subprocess.run(['pngcrush', interim, thumbnail_path])
-                os.remove(interim)
-            add_to_build(thumbnail_path, os.path.join('assets', thesis['url_id'] + '_thumbnail.png'), params)
+            thumbnail_base_size = 400
+            for size_factor in [1, 2, 3]:
+                thumbnail_filename = thesis['url_id'] + '_thumbnail.'
+                if size_factor != 1:
+                    thumbnail_filename = thumbnail_filename[:-1] + '-' + str(size_factor) + 'x.'
+                thumbnail_path = os.path.join(student_theses_cache_dir, thumbnail_filename)
+                if not os.path.isfile(thumbnail_path + 'png'):
+                    thumbnail_interim = thumbnail_path[:-1] + '-precrush.png'
+                    subprocess.run(['convert', '-density', '600', pdf_path+'[0]',
+                                    '-alpha', 'remove', '-resize', str(thumbnail_base_size * size_factor), thumbnail_interim])
+                    image = PIL.Image.open(thumbnail_interim)
+                    image = image.convert('RGB')
+                    image_grayscale = image.convert('L').convert('RGB')
+                    difference = PIL.ImageChops.difference(image, image_grayscale)
+                    tint_sum = 0
+                    for pixel in difference.getdata():
+                        if pixel != (0, 0, 0):
+                            tint_sum += pixel[0] + pixel[1] + pixel[2]
+                    tinted_quotient = tint_sum / (image.width * image.height)
+                    if tinted_quotient < 0.1:
+                        image = image.convert('L')
+                    image.save(thumbnail_interim)
+                    subprocess.run(['pngcrush', thumbnail_interim, thumbnail_path + 'png'])
+                    os.remove(thumbnail_interim)
+                    thesis['thumbnail_size'] = list(image.size)
+                add_to_build(thumbnail_path + 'png', os.path.join('assets', thumbnail_filename + 'png'), params)
+                if not os.path.isfile(thumbnail_path + 'webp'):
+                    subprocess.run(['cwebp', '-preset', 'text', '-q', '35', '-m', '6', '-noalpha', thumbnail_path + 'png', '-o', thumbnail_path + 'webp'])
+                add_to_build(thumbnail_path + 'webp', os.path.join('assets', thumbnail_filename + 'webp'), params)
+                if not os.path.isfile(thumbnail_path + 'avif'):
+                    subprocess.run(['cavif', '--quality', '35', thumbnail_path + 'png', '-o', thumbnail_path + 'avif'])
+                add_to_build(thumbnail_path + 'avif', os.path.join('assets', thumbnail_filename + 'avif'), params)
+            if 'thumbnail_size' not in thesis:
+                image = PIL.Image.open(thumbnail_path + 'png')
+                thesis['thumbnail_size'] = list(image.size)
             thesis['has_thumbnail'] = True
         teaching_template = template_env.get_template('science/teaching.html')
         params['title'] = 'Teaching'
