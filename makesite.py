@@ -665,7 +665,7 @@ def compile_site(site, params):
                 css = 'readerbar.css'
             open_graph = {
                 'description': proj['summary'],
-                'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + proj['logo'],
+                'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + proj['logo'][-1],
                 'image:alt': proj['title'] + ' logo'
             }
             output = template.render(proj=proj, css=css, open_graph=open_graph, **params)
@@ -702,7 +702,7 @@ def compile_site(site, params):
                 css = 'player.css'
             open_graph = {
                 'description': proj['summary'],
-                'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + proj['logo'],
+                'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + proj['logo'][-1],
                 'image:alt': proj['title'] + ' logo'
             }
             output = template.render(proj=proj, css=css, open_graph=open_graph, **params)
@@ -765,7 +765,7 @@ def compile_site(site, params):
             misc['pretty_date'] = pretty_format(misc['date'])
             open_graph = {
                 'description': misc['summary'],
-                'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + misc['logo'],
+                'image': params['protocol'] + params['hostname'] + params['hostname_suffix'] + '/assets/' + misc['logo'][-1],
                 'image:alt': misc['title'] + ' logo'
             }
             output = template.render(proj=misc, open_graph=open_graph, **params)
@@ -788,20 +788,20 @@ def compile_site(site, params):
         output = template.render(**params)
         add_to_build(output, additional_template, params)
 
+    tint = params['accent_color']
+    if not tint.startswith('#'):
+        raise ValueError('Failed to parse accent color: ' + tint)
+    tint = tint[1:]
+    if len(tint) == 3:
+        tint = ''.join([2*c for c in tint])
+    red = int(tint[0:2], 16)
+    green = int(tint[2:4], 16)
+    blue = int(tint[4:6], 16)
     favicon_cache_dir = os.path.join(params['data_root'], 'cache', 'favicon')
     if not os.path.isdir(favicon_cache_dir):
         os.makedirs(favicon_cache_dir)
     favicon_cache = os.path.join(favicon_cache_dir, site['name'] + '-original.png')
     if not os.path.isfile(favicon_cache):
-        tint = params['accent_color']
-        if not tint.startswith('#'):
-            raise ValueError('Failed to parse accent color: ' + tint)
-        tint = tint[1:]
-        if len(tint) == 3:
-            tint = ''.join([2*c for c in tint])
-        red = int(tint[0:2], 16)
-        green = int(tint[2:4], 16)
-        blue = int(tint[4:6], 16)
         favicon_large = PIL.Image.open(os.path.join(params['data_root'], 'templates', 'favicon.png'))
         favicon_large = PIL.ImageChops.multiply(favicon_large, PIL.Image.new('RGBA', favicon_large.size, (red, green, blue)))
         favicon_large.save(favicon_cache)
@@ -822,6 +822,25 @@ def compile_site(site, params):
             subprocess.run(['pngcrush', interim, favicon_cache])
             os.remove(interim)
         add_to_build(favicon_cache, os.path.join('assets', 'favicon-' + str(size) + '.png'), params)
+    illustrations_cache_dir = os.path.join(params['data_root'], 'cache', 'illustrations')
+    if not os.path.isdir(illustrations_cache_dir):
+        os.makedirs(illustrations_cache_dir)
+    error_404_full = os.path.join(illustrations_cache_dir, 'error-404-' + site['name'] + '-full.png')
+    if not os.path.isfile(error_404_full):
+        error_404_base = PIL.Image.open(os.path.join(params['data_root'], 'templates', 'error_404_base.png'))
+        error_404_overlay = PIL.Image.open(os.path.join(params['data_root'], 'templates', 'error_404_overlay.png'))
+        error_404_overlay = PIL.ImageChops.multiply(error_404_overlay, PIL.Image.new('RGBA', error_404_overlay.size, (red, green, blue)))
+        error_404_illustration = PIL.Image.alpha_composite(error_404_base, error_404_overlay)
+        error_404_illustration.save(error_404_full)
+    error_404_optimized = os.path.join(illustrations_cache_dir, 'error-404-' + site['name'] + '-optimized.')
+    if not os.path.isfile(error_404_optimized + 'png'):
+        subprocess.run(['convert', error_404_full, '+dither', '-colors', '256', '-alpha', 'background', 'PNG8:' + error_404_optimized + 'interim.png'])
+        subprocess.run(['pngcrush', error_404_optimized + 'interim.png', error_404_optimized + 'png'])
+        os.remove(error_404_optimized + 'interim.png')
+    add_to_build(error_404_optimized + 'png', os.path.join('assets', 'error_404.png'), params)
+    if not os.path.isfile(error_404_optimized + 'webp'):
+        subprocess.run(['cwebp', '-preset', 'drawing', '-q', '55', '-m', '6', error_404_full, '-o', error_404_optimized + 'webp'])
+    add_to_build(error_404_optimized + 'webp', os.path.join('assets', 'error_404.webp'), params)
 
 
 def get_sitemap_entries(structure, base_url):
