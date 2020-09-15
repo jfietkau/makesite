@@ -37,7 +37,6 @@ import PIL.Image
 import PIL.ImageChops
 import re
 import rcssmin
-import rjsmin
 import shutil
 import stat
 import subprocess
@@ -141,6 +140,27 @@ def render(template, **params):
                   template)
 
 
+def optimize_for_build(source, target):
+    if target.endswith('.js'):
+        with open(source, 'r') as f:
+            start = f.read(13)
+            # Only minify modern JS files (since the site contains some less important legacy code)
+            if start == '\'use strict\';':
+                jar_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'closure-compiler-v*.jar')
+                jar_path = glob.glob(jar_path)[0]
+                subprocess.run(['java', '-jar', jar_path, '--compilation_level', 'ADVANCED', '--js', source,
+                                '--js_output_file', target, '--language_in', 'ECMASCRIPT_2015', '--language_out', 'ECMASCRIPT_2015',
+                                '--strict_mode_input', '--formatting', 'SINGLE_QUOTES'])
+                shutil.copystat(source, target)
+            else:
+                shutil.copy2(source, target)
+    elif target.endswith('.svg'):
+        subprocess.run(['svgo', source, '-o', target])
+        shutil.copystat(source, target)
+    else:
+        shutil.copy2(source, target)
+
+
 def add_to_build(source, target, params):
     link_if_bigger_than = 4 * 1024 * 1024
     build_permissions = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH
@@ -156,10 +176,6 @@ def add_to_build(source, target, params):
         if os.path.isfile(source):
             source = fread(source)
         source = rcssmin.cssmin(source)
-    if target.endswith('.js'):
-        if os.path.isfile(source):
-            source = fread(source)
-        source = rjsmin.jsmin(source)
     target_path = os.path.join(build_path, target)
     if not os.path.isfile(target_path):
         target_dir = os.path.dirname(target_path)
@@ -174,11 +190,7 @@ def add_to_build(source, target, params):
             if os.path.getsize(source) > link_if_bigger_than:
                 os.symlink(source, target_path)
             else:
-                if target_path.endswith('.svg'):
-                    subprocess.run(['svgo', source, '-o', target_path])
-                    shutil.copystat(source, target_path)
-                else:
-                    shutil.copy2(source, target_path)
+                optimize_for_build(source, target_path)
         os.chmod(target_path, build_permissions)
     else:
         target_stat = os.stat(target_path)
@@ -193,18 +205,14 @@ def add_to_build(source, target, params):
                 pass
         else:
             source_stat = os.stat(source)
-            if source_stat.st_mtime != target_stat.st_mtime or (source_stat.st_size != target_stat.st_size and not source.endswith('.svg')):
+            if source_stat.st_mtime != target_stat.st_mtime or (source_stat.st_size != target_stat.st_size and not (source.endswith('.js') or source.endswith('.svg'))):
                 log('Adding {} from {} ...'.format(target, source))
                 if os.path.getsize(source) > link_if_bigger_than:
+                    os.remove(target_path)
                     os.symlink(source, target_path)
                     os.chmod(target_path, build_permissions)
                 else:
-                    if target_path.endswith('.svg'):
-                        subprocess.run(['svgo', source, '-o', target_path])
-                        shutil.copystat(source, target_path)
-                    else:
-                        shutil.copy2(source, target_path)
-                    os.chmod(target_path, build_permissions)
+                    optimize_for_build(source, target_path)
             else:
                 # log('Skipping {} - existing file is identical'.format(target))
                 pass
