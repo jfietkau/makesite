@@ -171,7 +171,7 @@ def add_to_build(source, target, params):
     if target.endswith('.html'):
         if os.path.isfile(source):
             source = fread(source)
-        source = htmlmin.minify(source, remove_empty_space=True, remove_optional_attribute_quotes=False)
+        source = htmlmin.minify(source, remove_empty_space=True, remove_comments=True, remove_optional_attribute_quotes=False)
     if target.endswith('.css'):
         if os.path.isfile(source):
             source = fread(source)
