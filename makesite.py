@@ -24,11 +24,13 @@
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
+import base64
 import collections
 import copy
 import datetime
 import distutils.dir_util
 import glob
+import hashlib
 import htmlmin
 import jinja2
 import json
@@ -176,6 +178,9 @@ def add_to_build(source, target, params):
         if os.path.isfile(source):
             source = fread(source)
         source = rcssmin.cssmin(source)
+    if 'file_hash' not in params:
+      params['file_hash'] = {}
+    params['file_hash'][target] = base64.b64encode(hashlib.sha256(source.encode('utf-8')).digest(), altchars=b'-_').decode('ascii')[:16]
     target_path = os.path.join(build_path, target)
     if not os.path.isfile(target_path):
         target_dir = os.path.dirname(target_path)
@@ -506,6 +511,12 @@ def compile_site(site, params):
     content_path = os.path.join(params['data_root'], 'content', 'all')
     site_content_path = os.path.join(params['data_root'], 'content', site['name'].lower())
 
+    additional_templates = ['main.css', 'robots.txt']
+    for additional_template in additional_templates:
+        template = template_env.get_template(additional_template)
+        output = template.render(**params)
+        add_to_build(output, additional_template, params)
+
     page_template = template_env.get_template('page.html')
     page_list = []
     for candidate in glob.glob(os.path.join(site_content_path, '*.html')):
@@ -789,12 +800,6 @@ def compile_site(site, params):
         }
         output = template.render(games=games, miscs=miscs, open_graph=open_graph, **params)
         add_to_build(output, 'index.html', params)
-
-    additional_templates = ['main.css', 'robots.txt']
-    for additional_template in additional_templates:
-        template = template_env.get_template(additional_template)
-        output = template.render(**params)
-        add_to_build(output, additional_template, params)
 
     tint = params['accent_color']
     if not tint.startswith('#'):
